@@ -5,6 +5,8 @@ Only accepts strictly validated JSON, never executes user-provided commands.
 Requires an explicit root-created enable marker before processing requests.
 """
 import fcntl
+import base64
+import urllib.request
 import ipaddress
 import json
 import os
@@ -73,6 +75,30 @@ def validate(value, existing):
     return name, proto, str(addr), local, remote
 
 
+def status_map(config):
+    web = config.get("webServer")
+    if not isinstance(web, dict):
+        raise ValueError("Missing FRPC API configuration")
+    host = web.get("addr", "127.0.0.1")
+    port = web.get("port", 7400)
+    user = web.get("user", "")
+    password = web.get("password", "")
+    auth = base64.b64encode((str(user) + ":" + str(password)).encode()).decode()
+    url = "http://" + str(host) + ":" + str(port) + "/api/status"
+    request = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        payload = json.load(response)
+    if type(payload) is not dict:
+        raise ValueError("Invalid FRPC status")
+    result = {}
+    for protocol, entries in payload.items():
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict) and entry.get("name"):
+                    result[(protocol.lower(), entry["name"])] = entry.get("status", "").lower()
+    return result
+
+
 def worker():
     if not REQUEST.is_file():
         return
@@ -101,6 +127,12 @@ def worker():
                 current = tomllib.load(source)
             name, proto, host, local, remote = validate(data["tunnel"], current)
             # Preserve tokens, comments and all existing proxy settings exactly.
+            previous_status = status_map(current)
+            prior_running = {
+                (str(p.get("type", "")).lower(), p.get("name"))
+                for p in current.get("proxies", [])
+                if previous_status.get((str(p.get("type", "")).lower(), p.get("name"))) == "running"
+            }
             original = SOURCE.read_bytes()
             suffix = ("\n[[proxies]]\n"
                       f"name = {json.dumps(name)}\n"
@@ -125,11 +157,20 @@ def worker():
                 changed = True
                 run(["systemctl", "restart", "frpc"], timeout=30)
                 run(["systemctl", "is-active", "--quiet", "frpc"], timeout=10)
-                # Confirm target proxy registered with FRPC after restart.
-                with SOURCE.open("rb") as check_file:
-                    verified = tomllib.load(check_file)
-                if not any(p.get("name") == name and p.get("type") == proto for p in verified.get("proxies", [])):
-                    raise ValueError("Tunnel missing after restart")
+                # New proxy and all previously running proxies must remain healthy.
+                deadline = time.monotonic() + 20
+                while True:
+                    try:
+                        statuses = status_map(current)
+                        if statuses.get((proto, name)) == "running" and all(
+                            statuses.get(key) == "running" for key in prior_running
+                        ):
+                            break
+                    except Exception:
+                        pass
+                    if time.monotonic() >= deadline:
+                        raise ValueError("FRPC proxy health check failed")
+                    time.sleep(1)
                 record = {"state": "success", "name": name, "protocol": proto,
                           "backup": str(backup), "updated_at": record["updated_at"]}
             finally:
