@@ -494,12 +494,14 @@ def worker():
                 temp.unlink(missing_ok=True)
         except Exception as exc:
             if changed and backup:
-                shutil.copy2(backup, SOURCE)
-                # Backup is intentionally 0600; restore the original ACL mask.
-                if original_mode is not None:
-                    os.chmod(SOURCE, original_mode)
                 try:
+                    shutil.copy2(backup, SOURCE)
+                    # Backup is intentionally 0600; restore the original ACL mask.
+                    if original_mode is not None:
+                        os.chmod(SOURCE, original_mode)
+                    run(["runuser", "-u", "frpmanager-svc", "--", "test", "-r", str(SOURCE)], timeout=5)
                     run(["systemctl", "restart", "frpc"], timeout=30)
+                    run(["systemctl", "is-active", "--quiet", "frpc"], timeout=10)
                 except Exception:
                     record["rollback_failed"] = True
             record["error"] = str(exc)[:200]
