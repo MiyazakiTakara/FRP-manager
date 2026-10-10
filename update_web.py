@@ -12,6 +12,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 STATE_DIR = Path("/var/lib/frp-manager")
 REQUEST = STATE_DIR / "update-request"
 STATUS = STATE_DIR / "update-status.json"
+CHECK = STATE_DIR / "update-check.json"
+SETTINGS = STATE_DIR / "update-settings.json"
+PAUSED = STATE_DIR / "update-auto-paused"
+REVISION = STATE_DIR / "deployed-revision"
 
 
 def install_update_routes(app, current_user):
@@ -37,10 +41,24 @@ pre{white-space:pre-wrap;background:#25292e;padding:16px;border-radius:8px}
 <h1>Application updates</h1>
 <p>Only FRP Manager source files are updated. FRP tunnels, secrets and session
 data are not changed. Failed health checks trigger automatic source rollback.</p>
-<button id="start">Install latest version</button>
+<p><label>Check interval (minutes) <input id="interval" type="number" min="1" max="1440" value="30"></label></p>
+<p><label><input id="download" type="checkbox" checked> Automatically download updates (do not install)</label></p>
+<button id="save">Save settings</button> <button id="start">Install latest version</button>
+<p id="check" role="status"></p>
 <pre id="status">Checking status...</pre>
 <script>
 const csrf = "__CSRF__";
+async function check(){
+ const r=await fetch("/api/update/check",{cache:"no-store"});
+ if(r.ok){const d=await r.json();
+ document.getElementById("check").textContent="Installed: "+(d.installed||"unknown")+" | Latest: "+(d.latest||"unknown")+" | Check: "+d.state+(d.paused?" | Automatic checks paused":"");
+ document.getElementById("interval").value=d.interval_minutes;
+ document.getElementById("download").checked=d.auto_download;
+ }}
+document.getElementById("save").addEventListener("click",async()=>{
+ const r=await fetch("/api/update/settings",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({interval_minutes:Number(document.getElementById("interval").value),auto_download:document.getElementById("download").checked})});
+ const d=await r.json();alert(r.ok?"Settings saved":JSON.stringify(d));check();
+});
 async function status(){
  const r=await fetch("/api/update/status",{cache:"no-store"});
  if(r.ok)document.getElementById("status").textContent=
@@ -57,7 +75,7 @@ document.getElementById("start").addEventListener("click",async()=>{
  }catch(e){document.getElementById("status").textContent=String(e)}
  finally{btn.disabled=false}
 });
-status();setInterval(status,5000);
+status();check();setInterval(status,5000);setInterval(check,30000);
 </script></body></html>"""
         return HTMLResponse(
             html.replace("__CSRF__", token),
@@ -100,3 +118,49 @@ status();setInterval(status,5000);
             REQUEST.unlink(missing_ok=True)
             raise
         return JSONResponse({"state": "queued"}, status_code=202)
+
+    def csrf_ok(request):
+        expected = request.session.get("update_csrf", "")
+        received = request.headers.get("x-csrf-token", "")
+        if not expected or not hmac.compare_digest(expected, received):
+            raise HTTPException(403, "Invalid CSRF token")
+        if request.headers.get("origin") != os.environ["APP_PUBLIC_URL"].rstrip("/"):
+            raise HTTPException(403, "Invalid origin")
+
+    @app.get("/api/update/check")
+    async def check_status(user=Depends(require_admin)):
+        try:
+            result = json.loads(CHECK.read_text()) if CHECK.exists() else {}
+            settings = json.loads(SETTINGS.read_text()) if SETTINGS.exists() else {}
+            return JSONResponse({
+                "state": result.get("state", "not-checked"),
+                "installed": REVISION.read_text().strip() if REVISION.exists() else "",
+                "latest": result.get("latest", ""),
+                "checked_at": result.get("checked_at", ""),
+                "downloaded": result.get("downloaded", False),
+                "paused": PAUSED.exists(),
+                "interval_minutes": settings.get("interval_minutes", 30),
+                "auto_download": settings.get("auto_download", True),
+            }, headers={"Cache-Control":"no-store"})
+        except (ValueError, OSError):
+            raise HTTPException(503, "Update checks unavailable")
+
+    @app.post("/api/update/settings")
+    async def update_settings(request: Request, user=Depends(require_admin)):
+        csrf_ok(request)
+        try:
+            data = await request.json()
+            interval = data["interval_minutes"]
+            download = data["auto_download"]
+            if type(interval) is not int or not 1 <= interval <= 1440 or type(download) is not bool:
+                raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(422, "Invalid settings")
+        settings = {"interval_minutes":interval,"auto_download":download}
+        tmp = SETTINGS.with_name("update-settings.tmp-" + secrets.token_hex(8))
+        with tmp.open("x") as out:
+            os.chmod(tmp, 0o600)
+            json.dump(settings, out)
+        os.replace(tmp, SETTINGS)
+        return settings
+
