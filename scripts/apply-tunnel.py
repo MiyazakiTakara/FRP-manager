@@ -395,12 +395,19 @@ def worker():
                         detail = details.get((proto, name), {})
                         reason = str(detail.get("err", "") or detail.get("error", ""))[:160]
                         if reason:
+                            # FRPC reports explicit server-side rejections in the status API.
+                            # Fail immediately rather than waiting for the full health timeout.
                             last_problem = reason
+                            if action != "delete" and "port not allowed" in reason.lower():
+                                raise ValueError("FRPS rejected public port: port not allowed")
                         expected = statuses.get((proto, name)) == "running" if action != "delete" else (proto, name) not in statuses
                         if expected and all(
                             statuses.get(key) == "running" for key in prior_running
                         ):
                             break
+                    except ValueError as exc:
+                        if "FRPS rejected public port" in str(exc):
+                            raise
                     except Exception:
                         pass
                     if time.monotonic() >= deadline:
