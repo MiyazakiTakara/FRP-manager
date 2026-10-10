@@ -115,3 +115,50 @@ The exact allowed-port policy for FRPS host `vps-01107d73` is available
 as `deploy/allowed-ports-vps-01107d73.json`. Install it at
 `/etc/frp-manager/allowed-ports.json` only if the remote FRPS rules remain
 unchanged.
+
+
+## Restore API (pre-GUI phase)
+
+A guarded restore engine has been added, **disabled by default**. The code
+requires all of the following for a write:
+
+- A live authenticated `frp-admin` Keycloak session and a fresh CSRF token.
+- Same-origin POST, exact request fields and an exclusive systemd queue slot.
+- The existing `tunnel-writes-enabled` marker **and** a separate root-owned
+  `/etc/frp-manager/tunnel-restore-enabled` marker. The latter must be
+  intentionally created by the server administrator; do not create it during
+  routine deployments.
+- The current raw FRPC SHA-256 exactly matching the preview's expected hash.
+- The snapshot's stored SHA-256 matching its raw bytes, TOML parse success,
+  and every restored TCP/UDP public port passing the configured FRPS policy.
+- FRPC syntax verification, backup, restart, and health checks for the
+  restored tunnels (and existing tunnels retained in the target).
+- A successful restore creates a **new** SQLite version with action
+  `restore`; older versions are never deleted.
+
+The admin-only read API is
+`GET /api/history/restore-preview/{version}`, and actual queued
+submission is `POST /api/history/restore`. A CSRF token can be obtained from
+`GET /api/history/restore-csrf`. There is intentionally no Restore button
+yet; enable the feature only after staging integration tests and an off-host
+backup. Do not test against the production `udp-8050` tunnel.
+
+### Preconditions for user-interface phase
+
+Before designing the main interface, verify:
+
+1. Application and root worker are both at compatible commits.
+2. `python3 -m unittest discover -s tests -v` succeeds on the host.
+3. `--verify-history` reports a current SHA-256 match.
+4. `--backup-history` creates a valid root-only SQLite backup.
+5. `/etc/frp-manager/allowed-ports.json` matches real FRPS `allowPorts`.
+6. All FRPC, manager, nginx and systemd watcher services are active.
+7. Keycloak role checks, token-refresh and timeout redirects work in browser.
+8. New Create/Edit/Delete actions append versions and audit entries; failure
+   writes only an audit event and restores the previous configuration.
+9. Restore remains disabled pending staged rollback/fault-injection tests.
+10. An off-host recovery plan exists for secrets-bearing backups.
+
+A running service and passing syntax checks do not constitute a complete
+fault-injection test. In particular, user identity propagation has not yet
+been verified by a new successful production tunnel operation.
