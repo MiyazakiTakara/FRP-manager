@@ -28,6 +28,34 @@ PUBLIC_URL = os.environ["APP_PUBLIC_URL"].rstrip("/")
 SESSION_SECRET = os.environ["SESSION_SECRET"]
 
 ROLES = ("frp-admin", "frp-operator", "frp-viewer")
+PORT_POLICY = Path("/etc/frp-manager/allowed-ports.json")
+
+
+def check_public_port(protocol, port):
+    if not PORT_POLICY.exists():
+        return
+    if PORT_POLICY.is_symlink():
+        raise HTTPException(503, "Port policy is invalid")
+    try:
+        policy = json.loads(PORT_POLICY.read_text(encoding="utf-8"))
+        if type(policy) is not dict or set(policy) != {"tcp", "udp"}:
+            raise ValueError("Invalid policy")
+        ranges = policy[protocol]
+        if type(ranges) is not list:
+            raise ValueError("Invalid ranges")
+        allowed = False
+        for item in ranges:
+            if (type(item) is not list or len(item) != 2 or
+                    any(type(n) is not int or not 1 <= n <= 65535 for n in item)
+                    or item[0] > item[1]):
+                raise ValueError("Invalid range")
+            if item[0] <= port <= item[1]:
+                allowed = True
+        if not allowed:
+            raise HTTPException(422, "Public port is not allowed by configured FRPS port policy")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(503, "Unable to validate FRPS port policy") from exc
+
 from session_store import (
     initialize,
     create_session,
@@ -473,6 +501,7 @@ def validate_tunnel_candidate(data):
             raise HTTPException(409, "Tunnel name is already in use")
         if str(proxy.get("type", "")).lower() == protocol and proxy.get("remotePort") == public_port:
             raise HTTPException(409, "Public port is already configured for this protocol")
+    check_public_port(protocol, public_port)
     return {
         "name": name,
         "type": protocol,
@@ -533,9 +562,22 @@ document.getElementById("create").addEventListener("click",async()=>{
  const r=await fetch("/api/tunnels/create",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body)});
  const result=document.getElementById("result");
  result.textContent=r.ok?"Creation queued. Check result below in a few seconds.":JSON.stringify(await r.json());
- if(r.ok){document.getElementById("create").hidden=true;setTimeout(async()=>{
- const res=await fetch("/api/tunnels/create-status");if(res.ok)result.textContent=JSON.stringify(await res.json());
- },7000);}
+ if(r.ok){
+ document.getElementById("create").hidden=true;
+ const started=Date.now();
+ const timer=setInterval(async()=>{
+  try{
+   const res=await fetch("/api/tunnels/create-status",{cache:"no-store"});
+   if(res.status===401){clearInterval(timer);window.location.assign("/login");return;}
+   if(!res.ok)return;
+   const data=await res.json();
+   if(data.state==="success"||data.state==="failed"){
+    clearInterval(timer);
+    result.textContent=data.state==="success"?"Tunnel created successfully.":("Tunnel creation failed: "+(data.error||"Unknown reason")+(data.rollback_failed?" (rollback failed)":" (previous configuration restored if rollback succeeded)"));
+   }else if(Date.now()-started>90000){clearInterval(timer);result.textContent="Operation is still pending. Check status later.";}
+  }catch(e){if(Date.now()-started>90000)clearInterval(timer);}
+ },2000);
+}
 });
 </script></body></html>"""
     return HTMLResponse(html.replace("__TOKEN__", token), headers={"Cache-Control": "no-store"})
@@ -632,7 +674,7 @@ async def create_tunnel_status(user=Depends(current_user)):
         return {"state": "not-run"}
     try:
         record = json.loads(TUNNEL_RESULT.read_text())
-        return {k: record[k] for k in ("state", "name", "protocol", "updated_at", "error", "rollback_failed") if k in record}
+        return {k: record[k] for k in ("state", "name", "protocol", "action", "updated_at", "error", "rollback_failed") if k in record}
     except (OSError, ValueError):
         raise HTTPException(503, "Tunnel operation status unavailable")
 
@@ -761,6 +803,7 @@ async def manage_preview(request: Request,user=Depends(current_user)):
     for port in ("local_port","public_port"):
         if type(candidate[port]) is not int or not 1<=candidate[port]<=65535:
             raise HTTPException(422,"Invalid port")
+    check_public_port(candidate["protocol"], candidate["public_port"])
     return {"mode":"preview-only","action":"edit","before":before,"after":candidate,
             "note":"No configuration changes were applied"}
 
@@ -820,6 +863,7 @@ async def manage_apply(request: Request, user=Depends(current_user)):
         for k in ("local_port","public_port"):
             if type(candidate[k]) is not int or not 1<=candidate[k]<=65535:
                 raise HTTPException(422,"Invalid port")
+        check_public_port(candidate["protocol"],candidate["public_port"])
     elif set(payload)!={"action","name"}:
         raise HTTPException(422,"Invalid request fields")
     if TUNNEL_REQUEST.exists():
