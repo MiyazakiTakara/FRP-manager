@@ -37,6 +37,10 @@ WORK="$(mktemp -d /tmp/frp-manager-update.XXXXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 git clone --quiet --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$WORK/repo"
 REVISION="$(git -C "$WORK/repo" rev-parse HEAD)"
+if [[ -n "${FRP_EXPECTED_REVISION:-}" && "$REVISION" != "$FRP_EXPECTED_REVISION" ]]; then
+  echo "GitHub branch changed after download; retry on next check." >&2
+  exit 3
+fi
 
 for name in "${FILES[@]}"; do
   [[ -f "$WORK/repo/$name" ]] || {
@@ -116,6 +120,26 @@ for attempt in $(seq 1 20); do
   fi
   sleep 1
 done
+
+# Smoke-test protected APIs without a real session.
+if [[ "$HEALTHY" -eq 1 ]]; then
+  for endpoint in /api/tunnels /api/update/check; do
+    status="$(curl --silent --output /dev/null --max-time 3 --write-out '%{http_code}' "http://127.0.0.1:8088$endpoint" || true)"
+    if [[ "$status" != "401" ]]; then
+      echo "Authorization check failed for $endpoint: $status" >&2
+      HEALTHY=0
+      break
+    fi
+  done
+fi
+
+# Functional FRPC integration check; no tunnel configuration changes.
+if [[ "$HEALTHY" -eq 1 ]]; then
+  if ! runuser -u frpmanager-svc -- "$VENV_PY" -c 'from app import get_tunnels; d=get_tunnels(); assert isinstance(d["tunnels"], list); assert d["monitoring"] == "available"' </dev/null; then
+    echo "FRPC read-only status test failed." >&2
+    HEALTHY=0
+  fi
+fi
 
 if [[ "$HEALTHY" -ne 1 ]]; then
   rollback
