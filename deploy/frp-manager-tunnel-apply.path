@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch approved FRP tunnel creation requests
+
+[Path]
+PathExists=/var/lib/frp-manager/tunnel-create-request.json
+Unit=frp-manager-tunnel-apply.service
+
+[Install]
+WantedBy=multi-user.target
