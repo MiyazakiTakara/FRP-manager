@@ -62,6 +62,7 @@ from session_store import (
     get_session,
     revoke_session,
     audit,
+    replace_tokens,
 )
 
 initialize()
@@ -129,6 +130,29 @@ async def current_user(request: Request):
     if not session:
         request.session.clear()
         raise HTTPException(401, "Authentication required")
+
+    if session.get("refresh_token") and session["token_expires_at"] <= int(time.time()) + 90:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    ISSUER + "/protocol/openid-connect/token",
+                    data={"grant_type": "refresh_token", "refresh_token": session["refresh_token"]},
+                    auth=(CLIENT_ID, CLIENT_SECRET))
+                response.raise_for_status()
+                tokens = response.json()
+            updated_expiry = int(time.time()) + int(tokens["expires_in"])
+            replace_tokens(sid, tokens["access_token"], updated_expiry,
+                           tokens.get("refresh_token", session["refresh_token"]),
+                           tokens.get("id_token", session.get("id_token")))
+            session["access_token"] = tokens["access_token"]
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (400, 401):
+                revoke_session(sid)
+                request.session.clear()
+                raise HTTPException(401, "Session expired") from None
+            raise HTTPException(503, "Keycloak token refresh unavailable") from None
+        except (httpx.HTTPError, KeyError, ValueError):
+            raise HTTPException(503, "Keycloak token refresh unavailable") from None
 
     try:
         data = await introspect(session["access_token"])
@@ -230,6 +254,7 @@ async def callback(request: Request):
         access_token=token["access_token"],
         token_expires_at=token_expiry,
         id_token=token.get("id_token"),
+        refresh_token=token.get("refresh_token"),
     )
 
     request.session.clear()
