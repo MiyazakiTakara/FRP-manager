@@ -335,12 +335,14 @@ code { font-size: 13px; overflow-wrap: anywhere; }
   <div class="table-wrap">
   <table>
     <thead><tr><th>Name</th><th>Protocol</th>
-      <th>Public address</th><th>Target</th><th>Status</th></tr></thead>
+      <th>Public address</th><th>Target</th><th>Status</th><th id="actions-heading" hidden>Actions</th></tr></thead>
     <tbody id="tunnels"></tbody>
   </table>
   </div>
 </main>
 <script>
+window.allowManage=__CAN_MANAGE__;
+if(window.allowManage)document.getElementById("actions-heading").hidden=false;
 async function load() {
   const message = document.getElementById("message");
   try {
@@ -365,6 +367,13 @@ async function load() {
         td.textContent = value;
         tr.appendChild(td);
       }
+      if (window.allowManage) {
+        const td=document.createElement("td");
+        const link=document.createElement("a");
+        link.href="/tunnels/manage?name="+encodeURIComponent(tunnel.name);
+        link.textContent="Edit / Delete";
+        td.appendChild(link);tr.appendChild(td);
+      }
       tbody.appendChild(tr);
     }
   } catch (error) {
@@ -376,6 +385,7 @@ load();
 </script>
 </body></html>
 """
+    page=page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false")
     return page.replace("__ADD_TUNNEL__", '<p><a href="/tunnels/new">+ Add tunnel (preview)</a></p>' if any(r in user["roles"] for r in ("frp-admin", "frp-operator")) else "")
 
 
@@ -611,3 +621,112 @@ async def create_tunnel_status(user=Depends(current_user)):
         return {k: record[k] for k in ("state", "name", "protocol", "updated_at", "error", "rollback_failed") if k in record}
     except (OSError, ValueError):
         raise HTTPException(503, "Tunnel operation status unavailable")
+
+
+@app.get("/tunnels/manage", response_class=HTMLResponse)
+async def manage_tunnel(request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    name=request.query_params.get("name","")
+    config=read_config()
+    proxy=next((p for p in config.get("proxies",[]) if p.get("name")==name),None)
+    if proxy is None:
+        raise HTTPException(404,"Tunnel not found")
+    token=secrets.token_urlsafe(32)
+    request.session["tunnel_manage_csrf"]=token
+    html="""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Manage tunnel - FRP Manager</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>:root{color-scheme:dark}body{font:16px system-ui;background:#15181c;color:#eee;max-width:650px;margin:45px auto;padding:20px}
+a{color:#acd0ff}label{display:block;margin-top:15px}input,button{font:inherit;padding:10px;margin-top:5px}input{width:100%;box-sizing:border-box}
+button{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head>
+<body><a href="/">← Back to tunnels</a><h1>Manage tunnel</h1>
+<p>Preview mode. Editing and deleting will require confirmation and safe backup/rollback.</p>
+<form id="edit">
+<label>Name (immutable)</label><input id="name" readonly>
+<label>Protocol (immutable)</label><input id="protocol" readonly>
+<label>Local IPv4 target</label><input id="local_ip" required>
+<label>Local port</label><input id="local_port" required type="number" min="1" max="65535">
+<label>Public port</label><input id="public_port" required type="number" min="1" max="65535">
+<button type="submit">Preview edit</button>
+</form><button id="delete">Preview delete</button>
+<p id="result" role="status"></p><pre id="preview"></pre>
+<script>
+const original=__DATA__;
+for(const key of ["name","protocol","local_ip","local_port","public_port"])
+ document.getElementById(key).value=original[key];
+document.getElementById("edit").addEventListener("submit",async e=>{
+e.preventDefault();const draft={...original};
+for(const key of ["local_ip","local_port","public_port"])draft[key]=document.getElementById(key).value;
+draft.local_port=Number(draft.local_port);draft.public_port=Number(draft.public_port);
+const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"edit",name:original.name,tunnel:draft})});
+const d=await r.json();document.getElementById("result").textContent=r.ok?"Edit validation passed. No changes made.":d.detail;
+document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
+});
+document.getElementById("delete").addEventListener("click",async()=>{
+ const confirmed=prompt("Type the tunnel name to preview deletion:");
+ if(confirmed!==original.name)return;
+ const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"delete",name:original.name})});
+ const d=await r.json();document.getElementById("result").textContent=r.ok?"Delete preview ready. No changes made.":d.detail;
+ document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
+});
+</script></body></html>"""
+    values={"name":proxy["name"],"protocol":proxy["type"],"local_ip":proxy.get("localIP"),
+            "local_port":proxy.get("localPort"),"public_port":proxy.get("remotePort")}
+    return HTMLResponse(html.replace("__DATA__",json.dumps(values).replace("<","\\u003c")).replace("__TOKEN__",token),
+                        headers={"Cache-Control":"no-store"})
+
+
+@app.post("/api/tunnels/manage-preview")
+async def manage_preview(request: Request,user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403,"Administrator role required")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403,"Invalid origin")
+    expected=request.session.get("tunnel_manage_csrf","")
+    if not expected or not hmac.compare_digest(expected,request.headers.get("x-csrf-token","")):
+        raise HTTPException(403,"Invalid CSRF token")
+    if int(request.headers.get("content-length","0") or "0") > 4096:
+        raise HTTPException(413,"Request too large")
+    try:
+        payload=await request.json()
+    except ValueError:
+        raise HTTPException(422,"Invalid JSON")
+    if type(payload) is not dict or payload.get("action") not in ("edit","delete"):
+        raise HTTPException(422,"Invalid action")
+    name=payload.get("name")
+    config=read_config()
+    proxy=next((p for p in config.get("proxies",[]) if p.get("name")==name),None)
+    if proxy is None:
+        raise HTTPException(404,"Tunnel not found")
+    before={"name":proxy["name"],"protocol":proxy["type"],"local_ip":proxy.get("localIP"),
+            "local_port":proxy.get("localPort"),"public_port":proxy.get("remotePort")}
+    if payload["action"]=="delete":
+        if set(payload)!={"action","name"}:
+            raise HTTPException(422,"Unexpected fields")
+        return {"mode":"preview-only","action":"delete","before":before,
+                "note":"No configuration changes were applied"}
+    if set(payload)!={"action","name","tunnel"}:
+        raise HTTPException(422,"Unexpected fields")
+    candidate=payload["tunnel"]
+    if not isinstance(candidate,dict) or candidate.get("name")!=name or candidate.get("protocol")!=before["protocol"]:
+        raise HTTPException(422,"Tunnel name and protocol cannot change")
+    modified={**config,"proxies":[p for p in config.get("proxies",[]) if p.get("name")!=name]}
+    # Validator reads live config; specifically check all other proxies here.
+    for other in modified["proxies"]:
+        if str(other.get("type","")).lower()==candidate.get("protocol") and other.get("remotePort")==candidate.get("public_port"):
+            raise HTTPException(409,"Public port already in use")
+    if set(candidate)!={"name","protocol","local_ip","local_port","public_port"}:
+        raise HTTPException(422,"Unexpected tunnel fields")
+    if not isinstance(candidate["local_ip"],str):
+        raise HTTPException(422,"Invalid IPv4 address")
+    try:
+        addr=ipaddress.IPv4Address(candidate["local_ip"])
+    except ipaddress.AddressValueError:
+        raise HTTPException(422,"Invalid IPv4 address")
+    if addr.is_multicast or addr.is_unspecified or addr.is_reserved or addr.is_loopback:
+        raise HTTPException(422,"Invalid IPv4 target")
+    for port in ("local_port","public_port"):
+        if type(candidate[port]) is not int or not 1<=candidate[port]<=65535:
+            raise HTTPException(422,"Invalid port")
+    return {"mode":"preview-only","action":"edit","before":before,"after":candidate,
+            "note":"No configuration changes were applied"}
