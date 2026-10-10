@@ -7,8 +7,17 @@ STATUS="$STATE_DIR/update-status.json"
 PAUSED="$STATE_DIR/update-auto-paused"
 REVISION="$STATE_DIR/deployed-revision"
 UPDATER="/usr/local/sbin/frp-manager-update"
-[[ -e "$REQUEST" ]] || exit 0
-rm -f "$REQUEST"
+MODE="${1:---manual}"
+if [[ "$MODE" == "--auto" ]]; then
+  [[ ! -e "$PAUSED" ]] || exit 0
+  [[ "${FRP_EXPECTED_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+elif [[ "$MODE" == "--manual" ]]; then
+  [[ -e "$REQUEST" ]] || exit 0
+  rm -f "$REQUEST"
+else
+  echo "Usage: run-queued-update [--manual|--auto]" >&2
+  exit 2
+fi
 mkdir -p "$STATE_DIR"
 
 write_state() {
@@ -24,7 +33,7 @@ write_state() {
 
 write_state running ""
 if "$UPDATER" --apply; then
-  rm -f "$PAUSED"
+  if [[ "$MODE" == "--manual" ]]; then rm -f "$PAUSED"; fi
   current="$(cat "$REVISION" 2>/dev/null || true)"
   write_state success "$current"
 else
