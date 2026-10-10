@@ -1,0 +1,17 @@
+[Unit]
+Description=Apply a queued FRP Manager update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/frp-manager-run-queued-update
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/frp-manager /var/lib/frp-manager /var/backups/frp-manager /run/lock
+TimeoutStartSec=180
