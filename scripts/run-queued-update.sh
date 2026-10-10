@@ -14,10 +14,12 @@ mkdir -p "$STATE_DIR"
 write_state() {
   local state="$1" revision="$2" stamp
   stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local tmp
+  tmp="$(mktemp "$STATE_DIR/.update-state.XXXXXXXX")"
   printf '{"state":"%s","revision":"%s","updated_at":"%s"}\n' \
-    "$state" "$revision" "$stamp" > "$STATUS.tmp"
-  chmod 0644 "$STATUS.tmp"
-  mv -f "$STATUS.tmp" "$STATUS"
+    "$state" "$revision" "$stamp" > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$STATUS"
 }
 
 write_state running ""
@@ -26,7 +28,9 @@ if "$UPDATER" --apply; then
   current="$(cat "$REVISION" 2>/dev/null || true)"
   write_state success "$current"
 else
-  printf "Last update failed at %s UTC\n" "$(date -u +%FT%TZ)" > "$PAUSED"
+  pause_tmp="$(mktemp "$STATE_DIR/.update-pause.XXXXXXXX")"
+  printf "Last update failed at %s UTC\n" "$(date -u +%FT%TZ)" > "$pause_tmp"
+  mv -f "$pause_tmp" "$PAUSED"
   write_state failed ""
   exit 1
 fi
