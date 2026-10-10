@@ -120,7 +120,7 @@ def create_session(
     now = int(time.time())
     sid = secrets.token_urlsafe(32)
     token_expiry = int(token_expires_at)
-    expiry = min(now + SESSION_TTL, token_expiry)
+    expiry = now + SESSION_TTL if refresh_token else min(now + SESSION_TTL, token_expiry)
 
     if expiry <= now:
         raise ValueError("Token already expired")
