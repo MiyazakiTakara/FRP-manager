@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_ed25519*
+id_rsa*
+*.secret
+*token*
+*credentials*
+*password*
+oidc.env
+client_token
+frpc.toml
+frps.toml
+known_hosts
+
+# Databases and runtime
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+data/
+runtime/
+backups/
+*.bak
+*.backup-*
+*.pre-logout-*
+
+# Local overrides
+config.local.*
+*.local.toml
+.DS_Store
+.idea/
+.vscode/
