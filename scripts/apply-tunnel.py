@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import time
 import tomllib
+import hashlib
 
 STATE = Path("/var/lib/frp-manager")
 SOURCE = Path("/etc/frp/frpc.toml")
@@ -99,6 +100,73 @@ def status_map(config):
     return result
 
 
+def proxy_blocks(original):
+    # Preserve all unrelated TOML including comments and secrets.
+    text = original.decode("utf-8")
+    marker = re.compile(r"(?m)^\\s*\\[\\[proxies\\]\\]\\s*(?:#.*)?$")
+    matches = list(marker.finditer(text))
+    if not matches:
+        return text, []
+    blocks = []
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block = text[match.start():end]
+        parsed = tomllib.loads(block)
+        if len(parsed.get("proxies", [])) != 1:
+            raise ValueError("Unsupported proxy block format")
+        blocks.append((match.start(), end, parsed["proxies"][0], block))
+    return text, blocks
+
+
+def apply_operation(original, data, current):
+    # Only supported basic TCP/UDP proxy blocks may be edited or deleted.
+    action = data.get("action", "create")
+    if action not in ("create", "edit", "delete"):
+        raise ValueError("Unknown action")
+    text, blocks = proxy_blocks(original)
+    if action == "create":
+        if set(data) != {"tunnel"} and set(data) != {"action", "tunnel"}:
+            raise ValueError("Invalid create request")
+        name, proto, host, local, remote = validate(data["tunnel"], current)
+        candidate = text.rstrip("\\n") + "\\n\\n[[proxies]]\\n" + (
+            f"name = {json.dumps(name)}\\ntype = {json.dumps(proto)}\\n"
+            f"localIP = {json.dumps(host)}\\nlocalPort = {local}\\nremotePort = {remote}\\n"
+        )
+        return candidate.encode(), name, proto, action
+
+    if set(data) != ({"action", "name", "tunnel"} if action == "edit" else {"action", "name"}):
+        raise ValueError("Invalid operation fields")
+    name = data["name"]
+    if type(name) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name):
+        raise ValueError("Invalid tunnel name")
+    selected = [(start, end, p, block) for start, end, p, block in blocks if p.get("name") == name]
+    if len(selected) != 1:
+        raise ValueError("Tunnel not uniquely found")
+    start, end, existing, block = selected[0]
+    proto = str(existing.get("type", "")).lower()
+    if proto not in ("tcp", "udp"):
+        raise ValueError("Unsupported tunnel type")
+    # Do not silently destroy advanced proxy configuration.
+    if set(existing) - {"name", "type", "localIP", "localPort", "remotePort"}:
+        raise ValueError("Advanced proxy configuration cannot be edited or deleted in this version")
+    if action == "delete":
+        return (text[:start] + text[end:]).encode(), name, proto, action
+
+    target = data["tunnel"]
+    if type(target) is not dict or target.get("name") != name or target.get("protocol") != proto:
+        raise ValueError("Name and protocol cannot change")
+    without = {"proxies": [p for p in current.get("proxies", []) if p.get("name") != name]}
+    _, _, host, local, remote = validate(target, without)
+    # Preserve the block heading/comments; replace only supported keys.
+    replacements = {"localIP": json.dumps(host), "localPort": str(local), "remotePort": str(remote)}
+    for field, value in replacements.items():
+        pattern = re.compile(r"(?m)^(\\s*" + field + r"\\s*=\\s*)([^#\\r\\n]*)(.*)$")
+        if len(pattern.findall(block)) != 1:
+            raise ValueError("Ambiguous proxy configuration field " + field)
+        block = pattern.sub(lambda match: match.group(1) + value + match.group(3), block)
+    return (text[:start] + block + text[end:]).encode(), name, proto, action
+
+
 def worker():
     if not REQUEST.is_file():
         return
@@ -121,26 +189,21 @@ def worker():
             if len(request) > 4096:
                 raise ValueError("Request too large")
             data = json.loads(request)
-            if type(data) is not dict or set(data) != {"tunnel"}:
+            if type(data) is not dict:
                 raise ValueError("Invalid envelope")
             with SOURCE.open("rb") as source:
                 current = tomllib.load(source)
-            name, proto, host, local, remote = validate(data["tunnel"], current)
-            # Preserve tokens, comments and all existing proxy settings exactly.
+            original = SOURCE.read_bytes()
+            candidate, name, proto, action = apply_operation(original, data, current)
+            if candidate == original:
+                raise ValueError("No changes to apply")
             previous_status = status_map(current)
             prior_running = {
                 (str(p.get("type", "")).lower(), p.get("name"))
                 for p in current.get("proxies", [])
                 if previous_status.get((str(p.get("type", "")).lower(), p.get("name"))) == "running"
+                and not (action == "delete" and p.get("name") == name)
             }
-            original = SOURCE.read_bytes()
-            suffix = ("\n[[proxies]]\n"
-                      f"name = {json.dumps(name)}\n"
-                      f"type = {json.dumps(proto)}\n"
-                      f"localIP = {json.dumps(host)}\n"
-                      f"localPort = {local}\n"
-                      f"remotePort = {remote}\n").encode()
-            candidate = original + (b"\n" if not original.endswith(b"\n") else b"") + suffix
             with tempfile.NamedTemporaryFile(mode="wb", dir=SOURCE.parent,
                                              prefix=".frpc-candidate-", delete=False) as handle:
                 temp = Path(handle.name)
@@ -169,7 +232,8 @@ def worker():
                 while True:
                     try:
                         statuses = status_map(current)
-                        if statuses.get((proto, name)) == "running" and all(
+                        expected = statuses.get((proto, name)) == "running" if action != "delete" else (proto, name) not in statuses
+                        if expected and all(
                             statuses.get(key) == "running" for key in prior_running
                         ):
                             break
@@ -178,7 +242,7 @@ def worker():
                     if time.monotonic() >= deadline:
                         raise ValueError("FRPC proxy health check failed")
                     time.sleep(1)
-                record = {"state": "success", "name": name, "protocol": proto,
+                record = {"state": "success", "name": name, "protocol": proto, "action": action,
                           "backup": str(backup), "updated_at": record["updated_at"]}
             finally:
                 temp.unlink(missing_ok=True)
