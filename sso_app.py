@@ -2,6 +2,9 @@ from urllib.parse import urlencode
 import os
 import logging
 import json
+import ipaddress
+import re
+import hmac
 import secrets
 import time
 import httpx
@@ -15,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
-from app import get_tunnels, get_ovh
+from app import get_tunnels, get_ovh, read_config
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
 CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
@@ -272,9 +275,9 @@ async def index(request: Request):
     if not get_session(sid):
         return RedirectResponse("/login", status_code=303)
 
-    await current_user(request)
+    user = await current_user(request)
 
-    return """
+    page = """
 <!doctype html>
 <html lang="en">
 <head>
@@ -321,6 +324,7 @@ code { font-size: 13px; overflow-wrap: anywhere; }
 <header><strong>FRP Manager</strong><nav><a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></nav></header>
 <main>
   <h1>Tunnels</h1>
+  __ADD_TUNNEL__
   <p>Configuration and status from your FRP infrastructure.</p>
   <div class="stats">
     <div class="stat"><strong id="active">...</strong><span>Active</span></div>
@@ -371,6 +375,7 @@ load();
 </script>
 </body></html>
 """
+    return page.replace("__ADD_TUNNEL__", '<p><a href="/tunnels/new">+ Add tunnel (preview)</a></p>' if any(r in user["roles"] for r in ("frp-admin", "frp-operator")) else "")
 
 
 @app.get("/logged-out", response_class=HTMLResponse)
@@ -397,3 +402,132 @@ margin:12vh auto;padding:24px">
 # Register the administrator-only update interface.
 from update_web import install_update_routes
 install_update_routes(app, current_user)
+
+
+# Safe tunnel creation preview. No configuration writes or FRPC restarts.
+async def can_preview_tunnel(user=Depends(current_user)):
+    if not any(role in user["roles"] for role in ("frp-admin", "frp-operator")):
+        raise HTTPException(403, "Operator or administrator role required")
+    return user
+
+
+def validate_tunnel_candidate(data):
+    if not isinstance(data, dict):
+        raise HTTPException(422, "Invalid tunnel definition")
+    if set(data) != {"name", "protocol", "local_ip", "local_port", "public_port"}:
+        raise HTTPException(422, "Unexpected or missing fields")
+    name = data["name"]
+    protocol = data["protocol"]
+    host = data["local_ip"]
+    local_port = data["local_port"]
+    public_port = data["public_port"]
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name):
+        raise HTTPException(422, "Name must be 1-64 characters (letters, numbers, underscore or hyphen)")
+    if protocol not in ("tcp", "udp"):
+        raise HTTPException(422, "Only TCP and UDP tunnels are supported")
+    if not isinstance(host, str):
+        raise HTTPException(422, "Invalid local IPv4 address")
+    try:
+        address = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        raise HTTPException(422, "Local address must be a valid IPv4 address")
+    if address.is_multicast or address.is_unspecified or address.is_reserved or address.is_loopback:
+        raise HTTPException(422, "Local address is not a permitted target")
+    for key, value in (("local_port", local_port), ("public_port", public_port)):
+        if type(value) is not int or not 1 <= value <= 65535:
+            raise HTTPException(422, key + " must be an integer between 1 and 65535")
+    try:
+        config = read_config()
+    except Exception:
+        raise HTTPException(503, "Unable to read current FRPC configuration")
+    proxies = config.get("proxies", [])
+    if not isinstance(proxies, list):
+        raise HTTPException(503, "Unexpected FRPC configuration format")
+    for proxy in proxies:
+        if not isinstance(proxy, dict):
+            raise HTTPException(503, "Unexpected FRPC proxy entry")
+        if proxy.get("name", "").lower() == name.lower():
+            raise HTTPException(409, "Tunnel name is already in use")
+        if str(proxy.get("type", "")).lower() == protocol and proxy.get("remotePort") == public_port:
+            raise HTTPException(409, "Public port is already configured for this protocol")
+    return {
+        "name": name,
+        "type": protocol,
+        "localIP": str(address),
+        "localPort": local_port,
+        "remotePort": public_port,
+    }
+
+
+@app.get("/tunnels/new", response_class=HTMLResponse)
+async def new_tunnel_page(request: Request, user=Depends(can_preview_tunnel)):
+    token = secrets.token_urlsafe(32)
+    request.session["tunnel_preview_csrf"] = token
+    html = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Add tunnel - FRP Manager</title>
+<style>
+:root{color-scheme:dark}body{font:16px system-ui;background:#15181c;color:#e9ecef;max-width:660px;margin:48px auto;padding:0 22px}
+a{color:#acd0ff}label{display:block;margin:16px 0 5px}
+input,select,button{font:inherit;padding:10px;border-radius:6px}
+input,select{background:#252a30;color:#fff;border:1px solid #59616a;width:100%}
+button{margin-top:18px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#252a30;padding:18px;border-radius:8px}
+.note{color:#bdc3ca}.error{color:#ffb5b5}
+</style></head><body><p><a href="/">← Back to tunnels</a></p>
+<h1>Add tunnel</h1><p class="note">Preview only. No configuration will be saved and no services will restart.</p>
+<form id="form">
+<label for="name">Tunnel name</label><input id="name" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" required placeholder="game-udp">
+<label for="protocol">Protocol</label><select id="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+<label for="local_ip">Local IPv4 target</label><input id="local_ip" required placeholder="192.168.1.37">
+<label for="local_port">Local port</label><input id="local_port" type="number" min="1" max="65535" required>
+<label for="public_port">Public port</label><input id="public_port" type="number" min="1" max="65535" required>
+<button type="submit">Validate and preview</button></form>
+<p class="note">Port availability on the remote FRPS firewall is not verified by this preview.</p>
+<div id="feedback" role="status" aria-live="polite"></div><pre id="preview" hidden></pre>
+<script>
+const csrf="__TOKEN__";
+document.getElementById("form").addEventListener("submit",async e=>{
+ e.preventDefault();const feedback=document.getElementById("feedback");
+ const preview=document.getElementById("preview");preview.hidden=true;feedback.textContent="Validating...";
+ const value=id=>document.getElementById(id).value;
+ const body={name:value("name"),protocol:value("protocol"),local_ip:value("local_ip"),
+ local_port:Number(value("local_port")),public_port:Number(value("public_port"))};
+ try{
+  const r=await fetch("/api/tunnels/preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body)});
+  const data=await r.json();
+  if(!r.ok){feedback.className="error";feedback.textContent=data.detail||"Validation failed";return;}
+  feedback.className="";feedback.textContent="Validation passed. This is a preview, not an active tunnel.";
+  preview.hidden=false;preview.textContent=data.toml_preview;
+ }catch(err){feedback.className="error";feedback.textContent="Unable to validate tunnel."}
+});
+</script></body></html>"""
+    return HTMLResponse(html.replace("__TOKEN__", token), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/tunnels/preview")
+async def preview_tunnel(request: Request, user=Depends(can_preview_tunnel)):
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    expected = request.session.get("tunnel_preview_csrf", "")
+    received = request.headers.get("x-csrf-token", "")
+    if not expected or not hmac.compare_digest(expected, received):
+        raise HTTPException(403, "Invalid CSRF token")
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length", "0") or "0") > 4096:
+        raise HTTPException(413, "Request is too large")
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "Invalid JSON")
+    tunnel = validate_tunnel_candidate(payload)
+    preview = (
+        "[[proxies]]\\n"
+        + "name = " + json.dumps(tunnel["name"]) + "\\n"
+        + "type = " + json.dumps(tunnel["type"]) + "\\n"
+        + "localIP = " + json.dumps(tunnel["localIP"]) + "\\n"
+        + "localPort = " + str(tunnel["localPort"]) + "\\n"
+        + "remotePort = " + str(tunnel["remotePort"]) + "\\n"
+    )
+    return {"valid": True, "mode": "preview-only", "toml_preview": preview,
+            "note": "Remote FRPS firewall and port availability are not verified."}
