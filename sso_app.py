@@ -5,6 +5,7 @@ import json
 import ipaddress
 import re
 import hmac
+import hashlib
 import tempfile
 import secrets
 import time
@@ -1008,3 +1009,82 @@ try{
 load();
 </script></body></html>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+RESTORE_ENABLED = Path("/etc/frp-manager/tunnel-restore-enabled")
+
+@app.get("/api/history/restore-preview/{version}")
+async def restore_preview(version: int, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator required")
+    data = load_public_history()
+    entry = next((row for row in data["versions"] if row["id"] == version), None)
+    if entry is None:
+        raise HTTPException(404, "Version not found in recent history")
+    live = Path("/etc/frp/frpc.toml")
+    try:
+        digest = hashlib.sha256(live.read_bytes()).hexdigest()
+    except OSError:
+        raise HTTPException(503, "Configuration unavailable")
+    latest = data["versions"][0] if data["versions"] else None
+    if not latest or latest["sha256"] != digest:
+        raise HTTPException(409, "Live configuration differs from recorded history")
+    if digest == entry["sha256"]:
+        raise HTTPException(409, "Requested version is already active")
+    return {"version": version, "expected_sha256": digest,
+            "target_sha256": entry["sha256"], "summary": entry["summary"],
+            "changes": entry["changes"], "enabled": RESTORE_ENABLED.is_file(),
+            "note": "Restore will create a new version and restart FRPC"}
+
+@app.post("/api/history/restore")
+async def restore_submit(request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator required")
+    if not RESTORE_ENABLED.is_file() or not TUNNEL_ENABLED.is_file():
+        raise HTTPException(503, "Restore is disabled")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length", "0") or "0") > 4096:
+        raise HTTPException(413, "Request too large")
+    expected = request.session.get("tunnel_restore_csrf", "")
+    token = request.headers.get("x-csrf-token", "")
+    if not expected or not hmac.compare_digest(expected, token):
+        raise HTTPException(403, "Invalid CSRF token")
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(422, "Invalid JSON")
+    if type(data) is not dict or set(data) != {"version", "expected_sha256"}:
+        raise HTTPException(422, "Invalid fields")
+    version = data["version"]
+    if type(version) is not int or version < 1:
+        raise HTTPException(422, "Invalid version")
+    preview = await restore_preview(version, user)
+    if preview["expected_sha256"] != data["expected_sha256"]:
+        raise HTTPException(409, "Configuration changed since preview")
+    payload = {"action": "restore", "version": version,
+               "expected_sha256": preview["expected_sha256"],
+               "actor": {"sub": user["sub"], "name": user["name"]}}
+    fd, tmp = tempfile.mkstemp(prefix=".tunnel-restore-", dir=TUNNEL_REQUEST.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp, 0o600)
+        try:
+            os.link(tmp, TUNNEL_REQUEST)
+        except FileExistsError:
+            raise HTTPException(409, "Another operation is queued")
+    finally:
+        os.unlink(tmp)
+    return JSONResponse({"state": "queued", "action": "restore", "version": version}, status_code=202)
+
+@app.get("/api/history/restore-csrf")
+async def restore_csrf(request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator required")
+    token = secrets.token_urlsafe(32)
+    request.session["tunnel_restore_csrf"] = token
+    return {"csrf": token, "enabled": RESTORE_ENABLED.is_file()}
