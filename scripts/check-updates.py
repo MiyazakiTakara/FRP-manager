@@ -44,8 +44,6 @@ def run():
     CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with Path("/run/lock/frp-manager-check.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if FAILURE.exists():
-            return
         settings = read_json(CONFIG, {})
         interval = int(settings.get("interval_minutes", 30))
         if interval < 1 or interval > 1440:
@@ -96,6 +94,7 @@ def run():
         except Exception:
             result["state"] = "check-failed"
             result["downloaded"] = False
+        result["auto_install_paused"] = FAILURE.exists()
         atomic_json(RESULT, result)
         if (result["state"] == "update-available"
                 and settings.get("auto_install", False)
@@ -107,7 +106,9 @@ def run():
                 timeout=150, check=False,
             )
             if proc.returncode != 0:
-                result["state"] = "install-failed"
+                result["state"] = "update-available"
+                result["install_state"] = "failed"
+                result["auto_install_paused"] = FAILURE.exists()
                 atomic_json(RESULT, result)
             else:
                 result["state"] = "up-to-date"
