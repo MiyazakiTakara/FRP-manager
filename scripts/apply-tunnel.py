@@ -31,6 +31,7 @@ BACKUPS = Path("/var/backups/frp-manager/tunnels")
 MANAGE_ENABLED = Path("/etc/frp-manager/tunnel-manage-enabled")
 HISTORY_DB = STATE / "history.db"
 HISTORY_PUBLIC = STATE / "history-public.json"
+PORT_POLICY = Path("/etc/frp-manager/allowed-ports.json")
 
 
 def atomic_status(value):
@@ -82,7 +83,32 @@ def validate(value, existing):
     return name, proto, str(addr), local, remote
 
 
-def status_map(config):
+def check_port_policy(protocol, public_port):
+    """Optional local mirror of FRPS allowPorts (not firewall verification)."""
+    if not PORT_POLICY.exists():
+        return
+    if PORT_POLICY.is_symlink():
+        raise ValueError("Port policy must not be a symlink")
+    try:
+        policy = json.loads(PORT_POLICY.read_text(encoding="utf-8"))
+        if (type(policy) is not dict or set(policy) != {"tcp", "udp"}
+                or any(type(policy[k]) is not list for k in ("tcp", "udp"))):
+            raise ValueError("Invalid port policy structure")
+        allowed = False
+        for entry in policy[protocol]:
+            if (type(entry) is not list or len(entry) != 2
+                    or any(type(n) is not int or not 1 <= n <= 65535 for n in entry)
+                    or entry[0] > entry[1]):
+                raise ValueError("Invalid port range")
+            if entry[0] <= public_port <= entry[1]:
+                allowed = True
+        if not allowed:
+            raise ValueError("Port {} / {} is not allowed by configured FRPS policy".format(public_port, protocol.upper()))
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        raise ValueError("Unable to validate FRPS port policy") from exc
+
+
+def status_details(config):
     web = config.get("webServer")
     if not isinstance(web, dict):
         raise ValueError("Missing FRPC API configuration")
@@ -92,18 +118,23 @@ def status_map(config):
     password = web.get("password", "")
     auth = base64.b64encode((str(user) + ":" + str(password)).encode()).decode()
     url = "http://" + str(host) + ":" + str(port) + "/api/status"
-    request = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
-    with urllib.request.urlopen(request, timeout=5) as response:
+    req = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
+    with urllib.request.urlopen(req, timeout=5) as response:
         payload = json.load(response)
     if type(payload) is not dict:
         raise ValueError("Invalid FRPC status")
-    result = {}
+    details = {}
     for protocol, entries in payload.items():
         if isinstance(entries, list):
             for entry in entries:
                 if isinstance(entry, dict) and entry.get("name"):
-                    result[(protocol.lower(), entry["name"])] = entry.get("status", "").lower()
-    return result
+                    details[(protocol.lower(), entry["name"])] = entry
+    return details
+
+
+def status_map(config):
+    return {key: str(value.get("status", "")).lower()
+            for key, value in status_details(config).items()}
 
 
 def proxy_blocks(original):
@@ -321,6 +352,9 @@ def worker():
                 raise ValueError("Edit/Delete operations are not enabled")
             if candidate == original:
                 raise ValueError("No changes to apply")
+            if action in ("create", "edit"):
+                selected = next(p for p in tomllib.loads(candidate.decode("utf-8"))["proxies"] if p["name"] == name)
+                check_port_policy(proto, selected["remotePort"])
             previous_status = status_map(current)
             prior_running = {
                 (str(p.get("type", "")).lower(), p.get("name"))
@@ -353,9 +387,15 @@ def worker():
                 run(["systemctl", "is-active", "--quiet", "frpc"], timeout=10)
                 # New proxy and all previously running proxies must remain healthy.
                 deadline = time.monotonic() + 20
+                last_problem = None
                 while True:
                     try:
-                        statuses = status_map(current)
+                        details = status_details(current)
+                        statuses = {key: str(item.get("status", "")).lower() for key, item in details.items()}
+                        detail = details.get((proto, name), {})
+                        reason = str(detail.get("err", "") or detail.get("error", ""))[:160]
+                        if reason:
+                            last_problem = reason
                         expected = statuses.get((proto, name)) == "running" if action != "delete" else (proto, name) not in statuses
                         if expected and all(
                             statuses.get(key) == "running" for key in prior_running
@@ -364,7 +404,7 @@ def worker():
                     except Exception:
                         pass
                     if time.monotonic() >= deadline:
-                        raise ValueError("FRPC proxy health check failed")
+                        raise ValueError("FRPC proxy health check failed" + (": " + last_problem if last_problem else ""))
                     time.sleep(1)
                 history_record(history, candidate, action, name, actor)
                 record = {"state": "success", "name": name, "protocol": proto, "action": action,
