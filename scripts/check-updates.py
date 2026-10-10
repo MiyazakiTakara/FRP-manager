@@ -105,7 +105,10 @@ def run():
                 env={**os.environ, "FRP_EXPECTED_REVISION": result["latest"]},
                 timeout=150, check=False,
             )
-            if proc.returncode != 0:
+            if proc.returncode == 3:
+                result["install_state"] = "superseded"
+                atomic_json(RESULT, result)
+            elif proc.returncode != 0:
                 result["state"] = "update-available"
                 result["install_state"] = "failed"
                 result["auto_install_paused"] = FAILURE.exists()
