@@ -933,7 +933,7 @@ small{color:#aeb6bf}details{margin-top:12px}pre{white-space:pre-wrap;overflow-wr
 </style></head><body>
 <a href="/">← Back to tunnels</a><h1>Configuration history</h1>
 <p>Read-only snapshots. Configuration credentials are never displayed. Restore is not enabled.</p>
-<div id="records">Loading history...</div>
+<div id="records">Loading history...</div><h2>Recent operations</h2><div id="operations"></div>
 <script>
 async function load(){
 const target=document.getElementById("records");
@@ -964,6 +964,20 @@ try{
   article.append(details);target.append(article);
  }
  if(!body.versions.length)target.textContent="No snapshots available.";
+ const operations=document.getElementById("operations");
+ operations.replaceChildren();
+ for(const event of (body.operations||[])){
+   const line=document.createElement("article");
+   const heading=document.createElement("strong");
+   heading.textContent=(event.outcome==="success"?"SUCCESS":"FAILED")+" · "+event.action+" · "+(event.tunnel||"unknown");
+   const meta=document.createElement("p"),label=document.createElement("small");
+   label.textContent=event.recorded_at+" · "+event.actor;
+   meta.append(label);line.append(heading,meta);
+   if(event.error){const error=document.createElement("p");error.textContent=event.error;line.append(error);}
+   if(event.rollback_failed){const alert=document.createElement("strong");alert.textContent="ROLLBACK FAILED - inspect FRPC immediately";line.append(alert);}
+   operations.append(line);
+ }
+ if(!(body.operations||[]).length)operations.textContent="No recorded operations yet.";
 }catch(err){target.textContent="Unable to load history: "+err.message;}
 }
 load();
