@@ -83,8 +83,7 @@ sudo systemctl start frp-manager-check.service
 The **Updates** page lets administrators change the check interval (1–1440
 minutes), enable or disable automatic downloads, and schedule an immediate check
 (on the next timer tick). If an update installation fails, the queued update
-runner writes a pause marker. Periodic checks and downloads then stop until an
-administrator explicitly clicks **Resume checks**.
+runner writes a pause marker. Automatic installations then stop, but periodic version checks and downloads continue. An administrator can resume automatic installation with **Resume auto-install**.
 
 The status API and the update controls require the Keycloak `frp-admin` role.
 The application does not receive root permissions. The existing update service
@@ -114,8 +113,7 @@ unauthenticated API access controls, and read-only FRPC status. No FRP
 configuration or tunnel services are restarted.
 
 If a deployment fails, the runner writes an `update-auto-paused` marker.
-Subsequent automatic checks and installations stop until an administrator
-selects **Resume checks**. Manual installation remains available, including
+Subsequent automatic installation attempts stop. Version checks and downloads continue at the configured interval, including detection of newer commits. An administrator must explicitly select **Resume auto-install** to unblock automatic deployment. Manual installation remains available, including
 for recovery.
 
 These tests do **not** prove a real interactive Keycloak login works; this
