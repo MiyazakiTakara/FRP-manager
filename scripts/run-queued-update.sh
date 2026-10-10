@@ -37,6 +37,11 @@ if "$UPDATER" --apply; then
   current="$(cat "$REVISION" 2>/dev/null || true)"
   write_state success "$current"
 else
+  code=$?
+  if [[ "$MODE" == "--auto" && "$code" -eq 3 ]]; then
+    write_state superseded ""
+    exit 3
+  fi
   pause_tmp="$(mktemp "$STATE_DIR/.update-pause.XXXXXXXX")"
   printf "Last update failed at %s UTC\n" "$(date -u +%FT%TZ)" > "$pause_tmp"
   mv -f "$pause_tmp" "$PAUSED"
