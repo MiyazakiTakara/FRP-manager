@@ -122,3 +122,43 @@ Only `frp-admin` may apply changes; the root worker independently checks
 the request against the live configuration. Test using a disposable TCP tunnel,
 not the active game tunnel. A running proxy does not guarantee that its LAN
 target service is reachable.
+
+
+## FRPS allowed-port policy and actionable failure reporting
+
+A remote FRPS server can reject a requested public port despite a valid TOML
+configuration. For example, a failure like `acquire port 8051 error: port not
+allowed` indicates a **server-side FRPS restriction**, not a missing local
+service or invalid SQLite snapshot. The worker now reads the FRPC status
+error and reports a clearer rejection when provided by FRPC. Failed tunnel
+changes are rolled back and do not create a successful config version.
+
+An **optional** root-maintained mirror of FRPS's `allowPorts` rules can
+prevent these restarts in the first place. It is not automatically discovered,
+and it cannot validate OVH firewall rules:
+
+`/etc/frp-manager/allowed-ports.json`
+
+Expected JSON format:
+
+```json
+{
+  "tcp": [[20000, 20010]],
+  "udp": [[8050, 8050]]
+}
+```
+
+**The values above are examples only and MUST NOT be installed unless they
+match the real FRPS configuration.** Different TCP/UDP sections are supported;
+each entry is an inclusive `[first_port,last_port]` range. If the policy is
+absent, preflight validation does not know remote port restrictions. When
+present, the web preview and privileged worker both enforce the policy.
+
+To determine the actual limits, inspect `allowPorts` on the OVH **FRPS**
+host, without sharing tokens or entire config files. Review any network
+firewall rules separately. Only after confirming the actual FRPS port ranges,
+write `allowed-ports.json` as root:root, mode 0644. The policy must be kept
+in sync after future FRPS configuration changes.
+
+A successful `frpc verify` checks only TOML semantics, not whether FRPS
+will accept a requested public port.
