@@ -25,6 +25,7 @@ REQUEST = STATE / "tunnel-create-request.json"
 STATUS = STATE / "tunnel-create-status.json"
 ENABLED = Path("/etc/frp-manager/tunnel-writes-enabled")
 BACKUPS = Path("/var/backups/frp-manager/tunnels")
+MANAGE_ENABLED = Path("/etc/frp-manager/tunnel-manage-enabled")
 
 
 def atomic_status(value):
@@ -195,6 +196,8 @@ def worker():
                 current = tomllib.load(source)
             original = SOURCE.read_bytes()
             candidate, name, proto, action = apply_operation(original, data, current)
+            if action in ("edit", "delete") and (not MANAGE_ENABLED.is_file() or MANAGE_ENABLED.is_symlink() or MANAGE_ENABLED.stat().st_uid != 0):
+                raise ValueError("Edit/Delete operations are not enabled")
             if candidate == original:
                 raise ValueError("No changes to apply")
             previous_status = status_map(current)
