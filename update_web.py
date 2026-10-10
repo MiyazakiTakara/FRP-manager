@@ -43,6 +43,8 @@ pre{white-space:pre-wrap;background:#25292e;padding:16px;border-radius:8px}
 data are not changed. Failed health checks trigger automatic source rollback.</p>
 <p><label>Check interval (minutes) <input id="interval" type="number" min="1" max="1440" value="30"></label></p>
 <p><label><input id="download" type="checkbox" checked> Automatically download updates (do not install)</label></p>
+<p><label><input id="autoinstall" type="checkbox"> Auto-install downloaded updates (opt-in)</label></p>
+<p>Automatic installation is disabled by default. After a failed update, it stops until an administrator resumes it.</p>
 <button id="save">Save settings</button> <button id="checknow">Check now</button> <button id="start">Install latest version</button> <button id="resume">Resume checks</button>
 <p id="check" role="status"></p>
 <pre id="status">Checking status...</pre>
@@ -54,6 +56,7 @@ async function check(){
  document.getElementById("check").textContent="Installed: "+(d.installed||"unknown")+" | Latest: "+(d.latest||"unknown")+" | Check: "+d.state+(d.paused?" | Automatic checks paused":"");
  document.getElementById("interval").value=d.interval_minutes;
  document.getElementById("download").checked=d.auto_download;
+ document.getElementById("autoinstall").checked=d.auto_install;
  }}
 document.getElementById("checknow").addEventListener("click",async()=>{
  const r=await fetch("/api/update/check-now",{method:"POST",headers:{"X-CSRF-Token":csrf}});
@@ -65,7 +68,7 @@ document.getElementById("resume").addEventListener("click",async()=>{
  alert(r.ok?"Automatic checks resumed":"Could not resume checks");check();
 });
 document.getElementById("save").addEventListener("click",async()=>{
- const r=await fetch("/api/update/settings",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({interval_minutes:Number(document.getElementById("interval").value),auto_download:document.getElementById("download").checked})});
+ const r=await fetch("/api/update/settings",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({interval_minutes:Number(document.getElementById("interval").value),auto_download:document.getElementById("download").checked,auto_install:document.getElementById("autoinstall").checked})});
  const d=await r.json();alert(r.ok?"Settings saved":JSON.stringify(d));check();
 });
 async function status(){
@@ -150,6 +153,7 @@ status();check();setInterval(status,5000);setInterval(check,30000);
                 "paused": PAUSED.exists(),
                 "interval_minutes": settings.get("interval_minutes", 30),
                 "auto_download": settings.get("auto_download", True),
+                "auto_install": settings.get("auto_install", False),
             }, headers={"Cache-Control":"no-store"})
         except (ValueError, OSError):
             raise HTTPException(503, "Update checks unavailable")
@@ -161,11 +165,12 @@ status();check();setInterval(status,5000);setInterval(check,30000);
             data = await request.json()
             interval = data["interval_minutes"]
             download = data["auto_download"]
-            if type(interval) is not int or not 1 <= interval <= 1440 or type(download) is not bool:
+            auto_install = data.get("auto_install", False)
+            if type(interval) is not int or not 1 <= interval <= 1440 or type(download) is not bool or type(auto_install) is not bool or (auto_install and not download):
                 raise ValueError()
         except (ValueError, KeyError, TypeError):
             raise HTTPException(422, "Invalid settings")
-        settings = {"interval_minutes":interval,"auto_download":download}
+        settings = {"interval_minutes":interval,"auto_download":download,"auto_install":auto_install}
         tmp = SETTINGS.with_name("update-settings.tmp-" + secrets.token_hex(8))
         with tmp.open("x") as out:
             os.chmod(tmp, 0o600)
