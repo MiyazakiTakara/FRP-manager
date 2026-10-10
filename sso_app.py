@@ -318,7 +318,7 @@ code { font-size: 13px; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
-<header><strong>FRP Manager</strong><a href="/logout">Sign out</a></header>
+<header><strong>FRP Manager</strong><nav><a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></nav></header>
 <main>
   <h1>Tunnels</h1>
   <p>Configuration and status from your FRP infrastructure.</p>
@@ -392,3 +392,8 @@ margin:12vh auto;padding:24px">
 </html>""",
         headers={"Cache-Control": "no-store"},
     )
+
+
+# Register the administrator-only update interface.
+from update_web import install_update_routes
+install_update_routes(app, current_user)
