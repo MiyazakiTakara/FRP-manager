@@ -300,6 +300,16 @@ def worker():
             data = json.loads(request)
             if type(data) is not dict:
                 raise ValueError("Invalid envelope")
+            actor_info = data.pop("actor", None)
+            if actor_info is None:
+                actor = "legacy-panel-admin"
+            elif (type(actor_info) is dict
+                  and set(actor_info) == {"sub", "name"}
+                  and all(type(actor_info[k]) is str and 1 <= len(actor_info[k]) <= 256
+                          for k in ("sub", "name"))):
+                actor = actor_info["name"] + " [" + actor_info["sub"] + "]"
+            else:
+                raise ValueError("Invalid actor metadata")
             with SOURCE.open("rb") as source:
                 current = tomllib.load(source)
             original = SOURCE.read_bytes()
@@ -356,7 +366,7 @@ def worker():
                     if time.monotonic() >= deadline:
                         raise ValueError("FRPC proxy health check failed")
                     time.sleep(1)
-                history_record(history, candidate, action, name, "panel-admin")
+                history_record(history, candidate, action, name, actor)
                 record = {"state": "success", "name": name, "protocol": proto, "action": action,
                           "backup": str(backup), "updated_at": record["updated_at"]}
             finally:
