@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;background:#25292e;padding:16px;border-radius:8px}
 data are not changed. Failed health checks trigger automatic source rollback.</p>
 <p><label>Check interval (minutes) <input id="interval" type="number" min="1" max="1440" value="30"></label></p>
 <p><label><input id="download" type="checkbox" checked> Automatically download updates (do not install)</label></p>
-<button id="save">Save settings</button> <button id="start">Install latest version</button>
+<button id="save">Save settings</button> <button id="start">Install latest version</button> <button id="resume">Resume checks</button>
 <p id="check" role="status"></p>
 <pre id="status">Checking status...</pre>
 <script>
@@ -55,6 +55,11 @@ async function check(){
  document.getElementById("interval").value=d.interval_minutes;
  document.getElementById("download").checked=d.auto_download;
  }}
+document.getElementById("resume").addEventListener("click",async()=>{
+ if(!confirm("Resume automatic checks after reviewing the last failure?"))return;
+ const r=await fetch("/api/update/resume",{method:"POST",headers:{"X-CSRF-Token":csrf}});
+ alert(r.ok?"Automatic checks resumed":"Could not resume checks");check();
+});
 document.getElementById("save").addEventListener("click",async()=>{
  const r=await fetch("/api/update/settings",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({interval_minutes:Number(document.getElementById("interval").value),auto_download:document.getElementById("download").checked})});
  const d=await r.json();alert(r.ok?"Settings saved":JSON.stringify(d));check();
@@ -164,3 +169,9 @@ status();check();setInterval(status,5000);setInterval(check,30000);
         os.replace(tmp, SETTINGS)
         return settings
 
+
+    @app.post("/api/update/resume")
+    async def resume_checks(request: Request, user=Depends(require_admin)):
+        csrf_ok(request)
+        PAUSED.unlink(missing_ok=True)
+        return {"state": "resumed"}
