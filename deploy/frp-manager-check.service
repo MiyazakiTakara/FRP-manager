@@ -12,5 +12,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/frp-manager /var/cache/frp-manager
+ReadWritePaths=/var/lib/frp-manager /var/cache/frp-manager /run/lock
 TimeoutStartSec=130
