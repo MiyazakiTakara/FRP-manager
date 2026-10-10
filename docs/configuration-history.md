@@ -65,3 +65,53 @@ support messages because both contain secrets.
 verified Keycloak identity; no restore UI, no external-change reconciliation,
 and no failure-attempt audit trail are available in phase 1. These follow
 after initial storage and history display are verified.
+
+
+## Follow-up release: audit, backup, and session refresh
+
+The root worker now records successful and failed operations in a separate
+`operation_events` table. The authenticated History page displays the most
+recent 100 events, while configuration versions are still created **only**
+after successful health checks. Failed operations from before this upgrade
+cannot be reconstructed reliably.
+
+An administrator can verify snapshot hashes against the live configuration
+without modifying FRPC:
+
+```bash
+/usr/local/sbin/frp-manager-apply-tunnel --verify-history
+```
+
+Create a consistent, root-only online SQLite backup (never just copy the
+live database while a transaction may be running):
+
+```bash
+/usr/local/sbin/frp-manager-apply-tunnel --backup-history
+```
+
+The backup is under `/var/backups/frp-manager/history` and contains the
+entire configuration including credentials. Back it up off-host securely.
+
+The application session store also supports an encrypted OIDC refresh token,
+if Keycloak returns one. It refreshes shortly before access-token expiry;
+old sessions without refresh tokens continue to use their previous behavior.
+Idle browser sessions still expire after 30 minutes. The persistent session
+database has an additive migration for `encrypted_refresh_token`.
+
+## Safe upgrade
+
+For first rollout, stop `frp-manager-tunnel-apply.path`, update the working
+copy and run `python3 -m py_compile scripts/apply-tunnel.py` and the offline
+tests (`python3 -m unittest discover -s tests -v`). Verify the request queue
+is empty, install the worker, run `--init-history`, then restart the path
+unit. The application is separately updated by the existing web updater.
+A normal worker upgrade requires **no FRPC restart**.
+
+For changes with unsuccessful rollback, do not assume the configuration was
+restored solely because the root worker stopped; inspect FRPC and SQLite
+manually before allowing new writes.
+
+The exact allowed-port policy for FRPS host `vps-01107d73` is available
+as `deploy/allowed-ports-vps-01107d73.json`. Install it at
+`/etc/frp-manager/allowed-ports.json` only if the remote FRPS rules remain
+unchanged.
