@@ -17,6 +17,7 @@ CONFIG = STATE / "update-settings.json"
 RESULT = STATE / "update-check.json"
 FAILURE = STATE / "update-auto-paused"
 REVISION = STATE / "deployed-revision"
+UPDATE_REQUEST = STATE / "update-request"
 
 
 def read_json(path, default):
@@ -100,23 +101,28 @@ def run():
                 and settings.get("auto_install", False)
                 and result.get("downloaded", False)
                 and not FAILURE.exists()):
-            proc = subprocess.run(
-                ["/usr/local/sbin/frp-manager-run-queued-update", "--auto"],
-                env={**os.environ, "FRP_EXPECTED_REVISION": result["latest"]},
-                timeout=150, check=False,
-            )
-            if proc.returncode == 3:
-                result["install_state"] = "superseded"
-                atomic_json(RESULT, result)
-            elif proc.returncode != 0:
-                result["state"] = "update-available"
-                result["install_state"] = "failed"
-                result["auto_install_paused"] = FAILURE.exists()
-                atomic_json(RESULT, result)
+            # The checker is sandboxed (ProtectSystem=strict). Only the
+            # dedicated update service may modify /opt or create backups.
+            # Queue atomically and ask systemd to start the service; do not
+            # execute its installer in this restricted process.
+            if UPDATE_REQUEST.exists():
+                result["install_state"] = "already-queued"
             else:
-                result["state"] = "up-to-date"
-                result["installed"] = result["latest"]
-                atomic_json(RESULT, result)
+                try:
+                    fd = os.open(UPDATE_REQUEST, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    os.close(fd)
+                    proc = subprocess.run(
+                        ["systemctl", "start", "--no-block", "frp-manager-update.service"],
+                        capture_output=True, text=True, timeout=10, check=False)
+                    if proc.returncode != 0:
+                        UPDATE_REQUEST.unlink(missing_ok=True)
+                        result["install_state"] = "queue-failed"
+                    else:
+                        result["install_state"] = "queued"
+                except (OSError, subprocess.TimeoutExpired):
+                    UPDATE_REQUEST.unlink(missing_ok=True)
+                    result["install_state"] = "queue-failed"
+            atomic_json(RESULT, result)
 
 
 if __name__ == "__main__":
