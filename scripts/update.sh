@@ -10,7 +10,7 @@ VENV_PY="$APP_DIR/venv/bin/python"
 SERVICE="frp-manager.service"
 BACKUP_DIR="/var/backups/frp-manager"
 LOCK="/run/lock/frp-manager-update.lock"
-FILES=(app.py sso_app.py session_store.py)
+FILES=(app.py sso_app.py session_store.py update_web.py)
 MODE="${1:---check}"
 
 if [[ "$MODE" != "--check" && "$MODE" != "--apply" ]]; then
@@ -39,7 +39,7 @@ git clone --quiet --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$WORK/re
 REVISION="$(git -C "$WORK/repo" rev-parse HEAD)"
 
 for name in "${FILES[@]}"; do
-  [[ -f "$WORK/repo/$name" && -f "$APP_DIR/$name" ]] || {
+  [[ -f "$WORK/repo/$name" ]] || {
     echo "Missing source file: $name" >&2; exit 1;
   }
 done
@@ -74,13 +74,21 @@ BACKUP="$BACKUP_DIR/$STAMP-$REVISION"
 mkdir "$BACKUP"
 chmod 0700 "$BACKUP"
 for name in "${FILES[@]}"; do
-  cp -a "$APP_DIR/$name" "$BACKUP/$name"
+  if [[ -f "$APP_DIR/$name" ]]; then
+    cp -a "$APP_DIR/$name" "$BACKUP/$name"
+  else
+    touch "$BACKUP/$name.absent"
+  fi
 done
 
 rollback() {
   echo "Health check failed. Rolling back source files..." >&2
   for name in "${FILES[@]}"; do
-    install -m 0644 "$BACKUP/$name" "$APP_DIR/$name"
+    if [[ -f "$BACKUP/$name.absent" ]]; then
+      rm -f "$APP_DIR/$name"
+    else
+      install -m 0644 "$BACKUP/$name" "$APP_DIR/$name"
+    fi
   done
   systemctl restart "$SERVICE" || true
 }
