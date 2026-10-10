@@ -32,6 +32,7 @@ MANAGE_ENABLED = Path("/etc/frp-manager/tunnel-manage-enabled")
 HISTORY_DB = STATE / "history.db"
 HISTORY_PUBLIC = STATE / "history-public.json"
 PORT_POLICY = Path("/etc/frp-manager/allowed-ports.json")
+RESTORE_ENABLED = Path("/etc/frp-manager/tunnel-restore-enabled")
 
 
 def atomic_status(value):
@@ -373,6 +374,35 @@ def history_backup():
     print("SQLite history backup created: " + str(path))
 
 
+def restore_candidate(connection, data, original):
+    if set(data) != {"action", "version", "expected_sha256"}:
+        raise ValueError("Invalid restore request fields")
+    version = data["version"]
+    expected = data["expected_sha256"]
+    if type(version) is not int or version < 1:
+        raise ValueError("Invalid version")
+    if type(expected) is not str or not re.fullmatch(r"[a-f0-9]{64}", expected):
+        raise ValueError("Invalid expected config hash")
+    if hashlib.sha256(original).hexdigest() != expected:
+        raise ValueError("Configuration changed since restore preview")
+    row = connection.execute("SELECT config,sha256 FROM versions WHERE id=?", (version,)).fetchone()
+    if row is None:
+        raise ValueError("Version not found")
+    target, digest = row
+    if hashlib.sha256(target).hexdigest() != digest:
+        raise ValueError("Snapshot integrity mismatch")
+    if target == original:
+        raise ValueError("Already running requested configuration")
+    parsed = tomllib.loads(target.decode("utf-8"))
+    if type(parsed.get("proxies", [])) is not list:
+        raise ValueError("Invalid snapshot proxies")
+    for proxy in parsed.get("proxies", []):
+        if not isinstance(proxy, dict):
+            raise ValueError("Invalid snapshot proxy")
+        if proxy.get("type") in ("tcp", "udp") and type(proxy.get("remotePort")) is int:
+            check_port_policy(proxy["type"], proxy["remotePort"])
+    return target, "version-" + str(version), "restore", "restore"
+
 def worker():
     if not REQUEST.is_file():
         return
@@ -418,7 +448,12 @@ def worker():
             original_mode = SOURCE.stat().st_mode & 0o777
             history = history_connection()
             ensure_baseline(history, original)
-            candidate, name, proto, action = apply_operation(original, data, current)
+            if data.get("action") == "restore":
+                if not RESTORE_ENABLED.is_file() or RESTORE_ENABLED.is_symlink() or RESTORE_ENABLED.stat().st_uid != 0:
+                    raise ValueError("Restore is not enabled by root")
+                candidate, name, proto, action = restore_candidate(history, data, original)
+            else:
+                candidate, name, proto, action = apply_operation(original, data, current)
             if action in ("edit", "delete") and (not MANAGE_ENABLED.is_file() or MANAGE_ENABLED.is_symlink() or MANAGE_ENABLED.stat().st_uid != 0):
                 raise ValueError("Edit/Delete operations are not enabled")
             record.update({"action": action, "name": name, "protocol": proto})
@@ -460,6 +495,10 @@ def worker():
                 # New proxy and all previously running proxies must remain healthy.
                 deadline = time.monotonic() + 20
                 last_problem = None
+                restored_proxies = set()
+                if action == "restore":
+                    restored_proxies = {(str(p.get("type", "")).lower(), p.get("name"))
+                                       for p in tomllib.loads(candidate.decode("utf-8")).get("proxies", [])}
                 while True:
                     try:
                         details = status_details(current)
@@ -472,7 +511,12 @@ def worker():
                             last_problem = reason
                             if action != "delete" and "port not allowed" in reason.lower():
                                 raise ValueError("FRPS rejected public port: port not allowed")
-                        expected = statuses.get((proto, name)) == "running" if action != "delete" else (proto, name) not in statuses
+                        if action == "restore":
+                            expected = all(statuses.get(key) == "running" for key in restored_proxies)
+                        elif action == "delete":
+                            expected = (proto, name) not in statuses
+                        else:
+                            expected = statuses.get((proto, name)) == "running"
                         if expected and all(
                             statuses.get(key) == "running" for key in prior_running
                         ):
