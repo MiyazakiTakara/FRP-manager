@@ -468,6 +468,9 @@ def worker():
                 for p in current.get("proxies", [])
                 if previous_status.get((str(p.get("type", "")).lower(), p.get("name"))) == "running"
                 and not (action == "delete" and p.get("name") == name)
+                and not (action == "restore" and (str(p.get("type", "")).lower(), p.get("name")) not in {
+                    (str(x.get("type", "")).lower(), x.get("name")) for x in tomllib.loads(candidate.decode("utf-8")).get("proxies", [])
+                })
             }
             with tempfile.NamedTemporaryFile(mode="wb", dir=SOURCE.parent,
                                              prefix=".frpc-candidate-", delete=False) as handle:
