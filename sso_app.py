@@ -649,9 +649,13 @@ button{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></
 <label>Public port</label><input id="public_port" required type="number" min="1" max="65535">
 <button type="submit">Preview edit</button>
 </form><button id="delete">Preview delete</button>
-<p id="result" role="status"></p><pre id="preview"></pre>
+<p id="result" role="status"></p><pre id="preview"></pre><button id="apply" type="button" hidden>Apply change</button>
 <script>
 const original=__DATA__;
+const allowApply=__ALLOW_APPLY__;
+let pending=null;
+function showApply(data){pending=data;document.getElementById("apply").hidden=!allowApply;}
+
 for(const key of ["name","protocol","local_ip","local_port","public_port"])
  document.getElementById(key).value=original[key];
 document.getElementById("edit").addEventListener("submit",async e=>{
@@ -660,6 +664,7 @@ for(const key of ["local_ip","local_port","public_port"])draft[key]=document.get
 draft.local_port=Number(draft.local_port);draft.public_port=Number(draft.public_port);
 const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"edit",name:original.name,tunnel:draft})});
 const d=await r.json();document.getElementById("result").textContent=r.ok?"Edit validation passed. No changes made.":d.detail;
+ if(r.ok)showApply({action:"edit",name:original.name,tunnel:d.after});else{pending=null;document.getElementById("apply").hidden=true;}
 document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
 });
 document.getElementById("delete").addEventListener("click",async()=>{
@@ -667,12 +672,23 @@ document.getElementById("delete").addEventListener("click",async()=>{
  if(confirmed!==original.name)return;
  const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"delete",name:original.name})});
  const d=await r.json();document.getElementById("result").textContent=r.ok?"Delete preview ready. No changes made.":d.detail;
+ if(r.ok)showApply({action:"delete",name:original.name});else{pending=null;document.getElementById("apply").hidden=true;}
  document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
+});
+document.getElementById("apply").addEventListener("click",async()=>{
+ if(!pending)return;
+ const action=pending.action;
+ if(action==="delete" && prompt("Confirm deletion. Enter tunnel name:")!==original.name)return;
+ if(!confirm((action==="delete"?"Delete":"Edit")+" tunnel "+original.name+" and restart FRPC?"))return;
+ const r=await fetch("/api/tunnels/manage-apply",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify(pending)});
+ const data=await r.json();
+ document.getElementById("result").textContent=r.ok?"Operation queued. Check the status in a moment.":(data.detail||"Request failed");
+ if(r.ok){document.getElementById("apply").hidden=true;pending=null;}
 });
 </script></body></html>"""
     values={"name":proxy["name"],"protocol":proxy["type"],"local_ip":proxy.get("localIP"),
             "local_port":proxy.get("localPort"),"public_port":proxy.get("remotePort")}
-    return HTMLResponse(html.replace("__DATA__",json.dumps(values).replace("<","\\u003c")).replace("__TOKEN__",token),
+    return HTMLResponse(html.replace("__DATA__",json.dumps(values).replace("<","\\u003c")).replace("__TOKEN__",token).replace("__ALLOW_APPLY__", "true" if Path("/etc/frp-manager/tunnel-manage-enabled").is_file() else "false"),
                         headers={"Cache-Control":"no-store"})
 
 
@@ -730,3 +746,78 @@ async def manage_preview(request: Request,user=Depends(current_user)):
             raise HTTPException(422,"Invalid port")
     return {"mode":"preview-only","action":"edit","before":before,"after":candidate,
             "note":"No configuration changes were applied"}
+
+
+TUNNEL_MANAGE_ENABLED = Path("/etc/frp-manager/tunnel-manage-enabled")
+
+
+@app.post("/api/tunnels/manage-apply")
+async def manage_apply(request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if not TUNNEL_ENABLED.is_file() or not TUNNEL_MANAGE_ENABLED.is_file():
+        raise HTTPException(503, "Tunnel editing and deletion are disabled")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    token=request.session.get("tunnel_manage_csrf","")
+    if not token or not hmac.compare_digest(token,request.headers.get("x-csrf-token","")):
+        raise HTTPException(403, "Invalid CSRF token")
+    if request.headers.get("content-type","").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length","0") or "0") > 4096:
+        raise HTTPException(413, "Request too large")
+    try:
+        payload=await request.json()
+    except ValueError:
+        raise HTTPException(422, "Invalid JSON")
+    if type(payload) is not dict or payload.get("action") not in ("edit","delete"):
+        raise HTTPException(422,"Invalid action")
+    name=payload.get("name")
+    if type(name) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}",name):
+        raise HTTPException(422,"Invalid tunnel name")
+    config=read_config()
+    proxy=next((p for p in config.get("proxies",[]) if p.get("name")==name),None)
+    if proxy is None:
+        raise HTTPException(404,"Tunnel not found")
+    if payload["action"]=="edit":
+        if set(payload)!={"action","name","tunnel"}:
+            raise HTTPException(422,"Invalid request fields")
+        candidate=payload["tunnel"]
+        if type(candidate) is not dict or set(candidate)!={"name","protocol","local_ip","local_port","public_port"}:
+            raise HTTPException(422,"Invalid tunnel fields")
+        if candidate["name"]!=name or candidate["protocol"]!=proxy.get("type"):
+            raise HTTPException(422,"Name and protocol cannot change")
+        # Worker repeats all validation against the live config under an exclusive lock.
+        with_others={"proxies":[p for p in config.get("proxies",[]) if p.get("name")!=name]}
+        for p in with_others["proxies"]:
+            if p.get("type")==candidate["protocol"] and p.get("remotePort")==candidate["public_port"]:
+                raise HTTPException(409,"Public port already in use")
+        if type(candidate["local_ip"]) is not str:
+            raise HTTPException(422,"Invalid target")
+        try:
+            ip=ipaddress.IPv4Address(candidate["local_ip"])
+        except ipaddress.AddressValueError:
+            raise HTTPException(422,"Invalid IPv4 address")
+        if ip.is_multicast or ip.is_loopback or ip.is_unspecified or ip.is_reserved:
+            raise HTTPException(422,"Invalid target")
+        for k in ("local_port","public_port"):
+            if type(candidate[k]) is not int or not 1<=candidate[k]<=65535:
+                raise HTTPException(422,"Invalid port")
+    elif set(payload)!={"action","name"}:
+        raise HTTPException(422,"Invalid request fields")
+    if TUNNEL_REQUEST.exists():
+        raise HTTPException(409,"Another tunnel operation is queued")
+    fd,tmp=tempfile.mkstemp(prefix=".tunnel-manage-",dir=TUNNEL_REQUEST.parent)
+    try:
+        with os.fdopen(fd,"w") as output:
+            json.dump(payload,output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(tmp,0o600)
+        try:
+            os.link(tmp,TUNNEL_REQUEST)
+        except FileExistsError:
+            raise HTTPException(409,"Another tunnel operation is queued")
+    finally:
+        os.unlink(tmp)
+    return JSONResponse({"state":"queued","action":payload["action"],"name":name},status_code=202)
