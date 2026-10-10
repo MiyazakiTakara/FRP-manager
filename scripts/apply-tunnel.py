@@ -381,6 +381,7 @@ def worker():
             candidate, name, proto, action = apply_operation(original, data, current)
             if action in ("edit", "delete") and (not MANAGE_ENABLED.is_file() or MANAGE_ENABLED.is_symlink() or MANAGE_ENABLED.stat().st_uid != 0):
                 raise ValueError("Edit/Delete operations are not enabled")
+            record.update({"action": action, "name": name, "protocol": proto})
             if candidate == original:
                 raise ValueError("No changes to apply")
             if action in ("create", "edit"):
