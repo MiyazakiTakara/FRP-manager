@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;background:#25292e;padding:16px;border-radius:8px}
 data are not changed. Failed health checks trigger automatic source rollback.</p>
 <p><label>Check interval (minutes) <input id="interval" type="number" min="1" max="1440" value="30"></label></p>
 <p><label><input id="download" type="checkbox" checked> Automatically download updates (do not install)</label></p>
-<button id="save">Save settings</button> <button id="start">Install latest version</button> <button id="resume">Resume checks</button>
+<button id="save">Save settings</button> <button id="checknow">Check now</button> <button id="start">Install latest version</button> <button id="resume">Resume checks</button>
 <p id="check" role="status"></p>
 <pre id="status">Checking status...</pre>
 <script>
@@ -55,6 +55,10 @@ async function check(){
  document.getElementById("interval").value=d.interval_minutes;
  document.getElementById("download").checked=d.auto_download;
  }}
+document.getElementById("checknow").addEventListener("click",async()=>{
+ const r=await fetch("/api/update/check-now",{method:"POST",headers:{"X-CSRF-Token":csrf}});
+ alert(r.ok?"Check scheduled (within one minute)":"Unable to schedule check");
+});
 document.getElementById("resume").addEventListener("click",async()=>{
  if(!confirm("Resume automatic checks after reviewing the last failure?"))return;
  const r=await fetch("/api/update/resume",{method:"POST",headers:{"X-CSRF-Token":csrf}});
@@ -175,3 +179,11 @@ status();check();setInterval(status,5000);setInterval(check,30000);
         csrf_ok(request)
         PAUSED.unlink(missing_ok=True)
         return {"state": "resumed"}
+
+    @app.post("/api/update/check-now")
+    async def check_now(request: Request, user=Depends(require_admin)):
+        csrf_ok(request)
+        if PAUSED.exists():
+            raise HTTPException(409, "Checks paused after failed update")
+        CHECK.unlink(missing_ok=True)
+        return JSONResponse({"state": "scheduled"}, status_code=202)
