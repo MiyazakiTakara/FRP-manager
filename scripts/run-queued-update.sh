@@ -4,6 +4,8 @@ umask 077
 STATE_DIR="/var/lib/frp-manager"
 REQUEST="$STATE_DIR/update-request"
 STATUS="$STATE_DIR/update-status.json"
+PAUSED="$STATE_DIR/update-auto-paused"
+REVISION="$STATE_DIR/deployed-revision"
 UPDATER="/usr/local/sbin/frp-manager-update"
 [[ -e "$REQUEST" ]] || exit 0
 rm -f "$REQUEST"
@@ -20,8 +22,11 @@ write_state() {
 
 write_state running ""
 if "$UPDATER" --apply; then
-  write_state success ""
+  rm -f "$PAUSED"
+  current="$(cat "$REVISION" 2>/dev/null || true)"
+  write_state success "$current"
 else
+  printf "Last update failed at %s UTC\n" "$(date -u +%FT%TZ)" > "$PAUSED"
   write_state failed ""
   exit 1
 fi
