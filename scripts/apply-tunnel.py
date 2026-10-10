@@ -146,7 +146,8 @@ def worker():
                 temp = Path(handle.name)
                 handle.write(candidate)
             try:
-                shutil.copystat(SOURCE, temp)\n                os.chmod(temp, SOURCE.stat().st_mode & 0o777)
+                shutil.copystat(SOURCE, temp)
+                os.chmod(temp, SOURCE.stat().st_mode & 0o777)
                 frpc_bin = next((str(p) for p in (Path("/usr/local/bin/frpc"), Path("/usr/bin/frpc"))
                                  if p.is_file() and os.access(p, os.X_OK)), None)
                 if frpc_bin is None:
