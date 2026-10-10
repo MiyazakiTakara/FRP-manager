@@ -1,0 +1,12 @@
+[Unit]
+Description=Scheduled FRP Manager version checks
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=frp-manager-check.service
+
+[Install]
+WantedBy=timers.target
