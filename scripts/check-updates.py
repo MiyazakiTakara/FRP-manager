@@ -42,7 +42,7 @@ def atomic_json(path, value):
 def run():
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (STATE / "update-check.lock").open("a+") as lock:
+    with Path("/run/lock/frp-manager-check.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if FAILURE.exists():
             return
