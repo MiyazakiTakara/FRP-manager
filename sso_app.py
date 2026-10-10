@@ -751,7 +751,7 @@ document.getElementById("apply").addEventListener("click",async()=>{
       if(res.status===401){clearInterval(timer);window.location.assign("/login");return;}
       if(!res.ok)return;
       const info=await res.json();
-      if(info.state==="success"||info.state==="failed"){
+      if((info.state==="success"||info.state==="failed") && info.action===action && info.name===original.name){
         clearInterval(timer);
         result.textContent=info.state==="success"?"Operation completed successfully.":("Operation failed: "+(info.error||"Unknown reason")+(info.rollback_failed?" (rollback failed)":" (rollback requested if configuration was changed)"));
       } else if(Date.now()-started>90000){clearInterval(timer);result.textContent="Still processing. Check operation status later.";}
