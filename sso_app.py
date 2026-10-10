@@ -475,7 +475,7 @@ input,select{background:#252a30;color:#fff;border:1px solid #59616a;width:100%}
 button{margin-top:18px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#252a30;padding:18px;border-radius:8px}
 .note{color:#bdc3ca}.error{color:#ffb5b5}
 </style></head><body><p><a href="/">← Back to tunnels</a></p>
-<h1>Add tunnel</h1><p class="note">Preview only. No configuration will be saved and no services will restart.</p>
+<h1>Add tunnel</h1><p class="note">Validate the tunnel before creating it. Preview is read-only; creation requires administrator approval and may restart FRPC.</p>
 <form id="form">
 <label for="name">Tunnel name</label><input id="name" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" required placeholder="game-udp">
 <label for="protocol">Protocol</label><select id="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
@@ -497,7 +497,7 @@ document.getElementById("form").addEventListener("submit",async e=>{
   const r=await fetch("/api/tunnels/preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body)});
   const data=await r.json();
   if(!r.ok){feedback.className="error";feedback.textContent=data.detail||"Validation failed";return;}
-  feedback.className="";feedback.textContent="Validation passed. This is a preview, not an active tunnel.";
+  feedback.className="";feedback.textContent="Validation passed. Preview generated; no tunnel has been created.";
   preview.hidden=false;preview.textContent=data.toml_preview;
   document.getElementById("create").hidden=!data.create_enabled;
  }catch(err){feedback.className="error";feedback.textContent="Unable to validate tunnel."}
