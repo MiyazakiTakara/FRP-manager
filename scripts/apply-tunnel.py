@@ -146,7 +146,7 @@ def worker():
                 temp = Path(handle.name)
                 handle.write(candidate)
             try:
-                os.chmod(temp, SOURCE.stat().st_mode & 0o777)
+                shutil.copystat(SOURCE, temp)\n                os.chmod(temp, SOURCE.stat().st_mode & 0o777)
                 frpc_bin = next((str(p) for p in (Path("/usr/local/bin/frpc"), Path("/usr/bin/frpc"))
                                  if p.is_file() and os.access(p, os.X_OK)), None)
                 if frpc_bin is None:
@@ -157,7 +157,7 @@ def worker():
                 backup = BACKUPS / (stamp + "-" + name + ".toml")
                 shutil.copy2(SOURCE, backup)
                 os.chmod(backup, 0o600)
-                os.replace(temp, SOURCE)
+                os.replace(temp, SOURCE)\n                # Verify the dashboard can still read the configuration.\n                run(["runuser", "-u", "frpmanager-svc", "--", "test", "-r", str(SOURCE)], timeout=5)
                 changed = True
                 run(["systemctl", "restart", "frpc"], timeout=30)
                 run(["systemctl", "is-active", "--quiet", "frpc"], timeout=10)
