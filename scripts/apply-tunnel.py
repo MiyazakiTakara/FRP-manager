@@ -147,7 +147,11 @@ def worker():
                 handle.write(candidate)
             try:
                 os.chmod(temp, SOURCE.stat().st_mode & 0o777)
-                run(["/usr/local/bin/frpc", "verify", "-c", str(temp)], timeout=15)
+                frpc_bin = next((str(p) for p in (Path("/usr/local/bin/frpc"), Path("/usr/bin/frpc"))
+                                 if p.is_file() and os.access(p, os.X_OK)), None)
+                if frpc_bin is None:
+                    raise ValueError("FRPC executable not found")
+                run([frpc_bin, "verify", "-c", str(temp)], timeout=15)
                 BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
                 stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
                 backup = BACKUPS / (stamp + "-" + name + ".toml")
