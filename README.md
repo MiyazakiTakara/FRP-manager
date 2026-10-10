@@ -2,7 +2,15 @@
 
 A self-hosted web management interface for [frp](https://github.com/fatedier/frp), with OpenID Connect authentication and operational visibility for FRP client tunnels.
 
-> **Development status:** Work in progress. The current repository is being prepared for the first sanitized source release. No production application code has been published yet.
+> **Development status:** Initial sanitized source snapshot published. This is a read-only preview of a running installation, not yet a tested general-purpose release. Do not overwrite an existing installation with these files.
+
+## Included in the initial source snapshot
+
+- Read-only FRP tunnel overview using the frpc status API
+- Keycloak OpenID Connect login, authorization checks and logout redirect
+- SQLite session persistence with encrypted access and ID tokens
+- Basic audit events for login and logout
+- Optional remote FRP server status over a restricted SSH command
 
 ## Planned features
 
@@ -20,7 +28,7 @@ FRP Manager runs alongside an existing `frpc` client. It reads tunnel state via 
 
 ## Deployment
 
-Deployment instructions and an audited upgrade script will be added after the production source code is imported and tested. **Do not deploy the current repository as a complete application.**
+Deployment instructions and an audited upgrade script are not yet complete. **Do not replace the running production application from this repository.** The source snapshot has only been syntax-checked; it has not been end-to-end tested as a clean deployment. Configuration values in `.env.example` are placeholders.
 
 Runtime secrets, FRP tokens, SSH credentials, session databases and real infrastructure configurations must never be committed. See [SECURITY.md](SECURITY.md).
 
