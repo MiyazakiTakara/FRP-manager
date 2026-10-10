@@ -55,6 +55,15 @@ app.add_middleware(
     max_age=1800,
 )
 
+@app.exception_handler(401)
+async def expired_session_handler(request: Request, exc: HTTPException):
+    if request.method == "GET" and not request.url.path.startswith("/api/"):
+        request.session.clear()
+        return RedirectResponse("/login", status_code=303, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"detail": "Session expired. Please sign in again."},
+                        status_code=401, headers={"Cache-Control": "no-store"})
+
+
 oauth = OAuth()
 oauth.register(
     name="keycloak",
@@ -90,6 +99,7 @@ async def current_user(request: Request):
     session = get_session(sid)
 
     if not session:
+        request.session.clear()
         raise HTTPException(401, "Authentication required")
 
     try:
@@ -274,6 +284,7 @@ async def homepage(user=Depends(current_user)):
 async def index(request: Request):
     sid = request.session.get("sid")
     if not get_session(sid):
+        request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
     user = await current_user(request)
@@ -347,6 +358,7 @@ async function load() {
   const message = document.getElementById("message");
   try {
     const response = await fetch("/api/tunnels");
+    if (response.status === 401) { window.location.assign("/login"); return; }
     if (!response.ok) throw new Error("HTTP " + response.status);
     const data = await response.json();
     document.getElementById("active").textContent = data.active ?? "?";
@@ -505,7 +517,8 @@ document.getElementById("form").addEventListener("submit",async e=>{
  local_port:Number(value("local_port")),public_port:Number(value("public_port"))};
  try{
   const r=await fetch("/api/tunnels/preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body)});
-  const data=await r.json();
+  if(r.status===401){window.location.assign("/login");return;}
+ const data=await r.json();
   if(!r.ok){feedback.className="error";feedback.textContent=data.detail||"Validation failed";return;}
   feedback.className="";feedback.textContent="Validation passed. Preview generated; no tunnel has been created.";
   preview.hidden=false;preview.textContent=data.toml_preview;
@@ -583,6 +596,7 @@ async def create_tunnel(request: Request, user=Depends(current_user)):
         raise HTTPException(422, "Invalid JSON")
     candidate = validate_tunnel_candidate(data)
     request_data = {
+        "actor": {"sub": user["sub"], "name": user["name"]},
         "tunnel": {
             "name": candidate["name"],
             "protocol": candidate["type"],
@@ -663,7 +677,8 @@ e.preventDefault();const draft={...original};
 for(const key of ["local_ip","local_port","public_port"])draft[key]=document.getElementById(key).value;
 draft.local_port=Number(draft.local_port);draft.public_port=Number(draft.public_port);
 const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"edit",name:original.name,tunnel:draft})});
-const d=await r.json();document.getElementById("result").textContent=r.ok?"Edit validation passed. No changes made.":d.detail;
+if(r.status===401){window.location.assign("/login");return;}
+ const d=await r.json();document.getElementById("result").textContent=r.ok?"Edit validation passed. No changes made.":d.detail;
  if(r.ok)showApply({action:"edit",name:original.name,tunnel:d.after});else{pending=null;document.getElementById("apply").hidden=true;}
 document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
 });
@@ -671,6 +686,7 @@ document.getElementById("delete").addEventListener("click",async()=>{
  const confirmed=prompt("Type the tunnel name to preview deletion:");
  if(confirmed!==original.name)return;
  const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"delete",name:original.name})});
+ if(r.status===401){window.location.assign("/login");return;}
  const d=await r.json();document.getElementById("result").textContent=r.ok?"Delete preview ready. No changes made.":d.detail;
  if(r.ok)showApply({action:"delete",name:original.name});else{pending=null;document.getElementById("apply").hidden=true;}
  document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
@@ -681,6 +697,7 @@ document.getElementById("apply").addEventListener("click",async()=>{
  if(action==="delete" && prompt("Confirm deletion. Enter tunnel name:")!==original.name)return;
  if(!confirm((action==="delete"?"Delete":"Edit")+" tunnel "+original.name+" and restart FRPC?"))return;
  const r=await fetch("/api/tunnels/manage-apply",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify(pending)});
+ if(r.status===401){window.location.assign("/login");return;}
  const data=await r.json();
  document.getElementById("result").textContent=r.ok?"Operation queued. Check the status in a moment.":(data.detail||"Request failed");
  if(r.ok){document.getElementById("apply").hidden=true;pending=null;}
@@ -807,6 +824,7 @@ async def manage_apply(request: Request, user=Depends(current_user)):
         raise HTTPException(422,"Invalid request fields")
     if TUNNEL_REQUEST.exists():
         raise HTTPException(409,"Another tunnel operation is queued")
+    payload["actor"] = {"sub": user["sub"], "name": user["name"]}
     fd,tmp=tempfile.mkstemp(prefix=".tunnel-manage-",dir=TUNNEL_REQUEST.parent)
     try:
         with os.fdopen(fd,"w") as output:
@@ -862,6 +880,7 @@ async function load(){
 const target=document.getElementById("records");
 try{
  const response=await fetch("/api/history",{cache:"no-store"});
+ if(response.status===401){window.location.assign("/login");return;}
  if(!response.ok)throw Error("HTTP "+response.status);
  const body=await response.json();target.replaceChildren();
  for(const item of body.versions){
