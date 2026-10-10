@@ -12,5 +12,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/etc/frp /var/lib/frp-manager /var/backups/frp-manager
+ReadWritePaths=/etc/frp /var/lib/frp-manager /var/backups/frp-manager /run/lock
 TimeoutStartSec=100
