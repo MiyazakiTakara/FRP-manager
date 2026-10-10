@@ -76,8 +76,11 @@ if ! grep -Eq '^FRPS_PUBLIC_HOST=.{1,}$' /etc/frp-manager/oidc.env; then
   exit 1
 fi
 
-mkdir -p "$BACKUP_DIR"
-chmod 0700 "$BACKUP_DIR"
+# Existing backup directory ownership and permissions are provisioned at setup.
+# Avoid chmod on the directory: systemd ProtectSystem=strict can reject it.
+if [[ ! -d "$BACKUP_DIR" ]]; then
+  install -d -o root -g root -m 0700 "$BACKUP_DIR"
+fi
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 BACKUP="$BACKUP_DIR/$STAMP-$REVISION"
 mkdir "$BACKUP"
