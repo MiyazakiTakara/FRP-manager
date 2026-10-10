@@ -322,7 +322,7 @@ code { font-size: 13px; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
-<header><strong>FRP Manager</strong><nav><a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></nav></header>
+<header><strong>FRP Manager</strong><nav><a href="/history">History</a> &nbsp; <a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></nav></header>
 <main>
   <h1>Tunnels</h1>
   __ADD_TUNNEL__
@@ -821,3 +821,73 @@ async def manage_apply(request: Request, user=Depends(current_user)):
     finally:
         os.unlink(tmp)
     return JSONResponse({"state":"queued","action":payload["action"],"name":name},status_code=202)
+
+
+HISTORY_PUBLIC = Path("/var/lib/frp-manager/history-public.json")
+
+
+def load_public_history():
+    try:
+        data = json.loads(HISTORY_PUBLIC.read_text(encoding="utf-8"))
+        if type(data) is not dict or type(data.get("versions")) is not list:
+            raise ValueError("Invalid history metadata")
+        return data
+    except FileNotFoundError:
+        raise HTTPException(503, "History is not initialized")
+    except (OSError, ValueError):
+        raise HTTPException(503, "History metadata unavailable")
+
+
+@app.get("/api/history")
+async def history_api(user=Depends(current_user)):
+    return load_public_history()
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def history_page(user=Depends(current_user)):
+    html = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration history - FRP Manager</title>
+<style>:root{color-scheme:dark;font:16px system-ui;background:#15181c;color:#e9ecef}
+body{max-width:980px;margin:40px auto;padding:0 20px}a{color:#b3d5ff}
+article{border:1px solid #343b42;border-radius:8px;padding:18px;margin:12px 0}
+small{color:#aeb6bf}details{margin-top:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.before{color:#ffb5b5}.after{color:#99e5b1}
+</style></head><body>
+<a href="/">← Back to tunnels</a><h1>Configuration history</h1>
+<p>Read-only snapshots. Configuration credentials are never displayed. Restore is not enabled.</p>
+<div id="records">Loading history...</div>
+<script>
+async function load(){
+const target=document.getElementById("records");
+try{
+ const response=await fetch("/api/history",{cache:"no-store"});
+ if(!response.ok)throw Error("HTTP "+response.status);
+ const body=await response.json();target.replaceChildren();
+ for(const item of body.versions){
+  const article=document.createElement("article");
+  const title=document.createElement("strong");
+  title.textContent="v"+item.id+" · "+item.summary;
+  article.append(title);
+  const meta=document.createElement("p"),small=document.createElement("small");
+  small.textContent=item.recorded_at+" · "+item.actor+" · SHA256 "+item.sha256.slice(0,12);
+  meta.append(small);article.append(meta);
+  const details=document.createElement("details"),summary=document.createElement("summary");
+  summary.textContent="View changes ("+item.changes.length+")";details.append(summary);
+  for(const change of item.changes){
+   const name=document.createElement("p");name.textContent=change.name;details.append(name);
+   for(const side of ["before","after"]){
+    const pre=document.createElement("pre");
+    pre.className=side;
+    pre.textContent=side+": "+JSON.stringify(change[side],null,2);
+    details.append(pre);
+   }
+  }
+  article.append(details);target.append(article);
+ }
+ if(!body.versions.length)target.textContent="No snapshots available.";
+}catch(err){target.textContent="Unable to load history: "+err.message;}
+}
+load();
+</script></body></html>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
