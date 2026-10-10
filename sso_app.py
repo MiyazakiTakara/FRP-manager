@@ -5,6 +5,7 @@ import json
 import ipaddress
 import re
 import hmac
+import tempfile
 import secrets
 import time
 import httpx
@@ -483,12 +484,12 @@ button{margin-top:18px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:any
 <label for="public_port">Public port</label><input id="public_port" type="number" min="1" max="65535" required>
 <button type="submit">Validate and preview</button></form>
 <p class="note">Port availability on the remote FRPS firewall is not verified by this preview.</p>
-<div id="feedback" role="status" aria-live="polite"></div><pre id="preview" hidden></pre>
+<div id="feedback" role="status" aria-live="polite"></div><pre id="preview" hidden></pre><button id="create" type="button" hidden>Create tunnel</button><p id="result" role="status"></p>
 <script>
 const csrf="__TOKEN__";
 document.getElementById("form").addEventListener("submit",async e=>{
  e.preventDefault();const feedback=document.getElementById("feedback");
- const preview=document.getElementById("preview");preview.hidden=true;feedback.textContent="Validating...";
+ const preview=document.getElementById("preview");preview.hidden=true;document.getElementById("create").hidden=true;feedback.textContent="Validating...";
  const value=id=>document.getElementById(id).value;
  const body={name:value("name"),protocol:value("protocol"),local_ip:value("local_ip"),
  local_port:Number(value("local_port")),public_port:Number(value("public_port"))};
@@ -498,7 +499,20 @@ document.getElementById("form").addEventListener("submit",async e=>{
   if(!r.ok){feedback.className="error";feedback.textContent=data.detail||"Validation failed";return;}
   feedback.className="";feedback.textContent="Validation passed. This is a preview, not an active tunnel.";
   preview.hidden=false;preview.textContent=data.toml_preview;
+  document.getElementById("create").hidden=!data.create_enabled;
  }catch(err){feedback.className="error";feedback.textContent="Unable to validate tunnel."}
+});
+document.getElementById("create").addEventListener("click",async()=>{
+ if(!confirm("Create this tunnel and restart FRPC? Existing tunnels will be checked."))return;
+ const value=id=>document.getElementById(id).value;
+ const body={name:value("name"),protocol:value("protocol"),local_ip:value("local_ip"),
+ local_port:Number(value("local_port")),public_port:Number(value("public_port"))};
+ const r=await fetch("/api/tunnels/create",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body)});
+ const result=document.getElementById("result");
+ result.textContent=r.ok?"Creation queued. Check result below in a few seconds.":JSON.stringify(await r.json());
+ if(r.ok){document.getElementById("create").hidden=true;setTimeout(async()=>{
+ const res=await fetch("/api/tunnels/create-status");if(res.ok)result.textContent=JSON.stringify(await res.json());
+ },7000);}
 });
 </script></body></html>"""
     return HTMLResponse(html.replace("__TOKEN__", token), headers={"Cache-Control": "no-store"})
@@ -529,5 +543,71 @@ async def preview_tunnel(request: Request, user=Depends(can_preview_tunnel)):
         + "localPort = " + str(tunnel["localPort"]) + "\\n"
         + "remotePort = " + str(tunnel["remotePort"]) + "\\n"
     )
-    return {"valid": True, "mode": "preview-only", "toml_preview": preview,
+    return {"valid": True, "mode": "preview-only", "create_enabled": (Path("/etc/frp-manager/tunnel-writes-enabled").is_file() and "frp-admin" in user["roles"]), "toml_preview": preview,
             "note": "Remote FRPS firewall and port availability are not verified."}
+
+
+TUNNEL_REQUEST = Path("/var/lib/frp-manager/tunnel-create-request.json")
+TUNNEL_RESULT = Path("/var/lib/frp-manager/tunnel-create-status.json")
+TUNNEL_ENABLED = Path("/etc/frp-manager/tunnel-writes-enabled")
+
+
+@app.post("/api/tunnels/create")
+async def create_tunnel(request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if not TUNNEL_ENABLED.is_file():
+        raise HTTPException(503, "Tunnel creation is not enabled on this host")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    token = request.session.get("tunnel_preview_csrf", "")
+    if not token or not hmac.compare_digest(token, request.headers.get("x-csrf-token", "")):
+        raise HTTPException(403, "Invalid CSRF token")
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length", "0") or "0") > 4096:
+        raise HTTPException(413, "Request too large")
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(422, "Invalid JSON")
+    candidate = validate_tunnel_candidate(data)
+    request_data = {
+        "tunnel": {
+            "name": candidate["name"],
+            "protocol": candidate["type"],
+            "local_ip": candidate["localIP"],
+            "local_port": candidate["localPort"],
+            "public_port": candidate["remotePort"],
+        }
+    }
+    if TUNNEL_REQUEST.exists():
+        raise HTTPException(409, "Another tunnel operation is queued")
+    fd, tmp_path = tempfile.mkstemp(prefix=".tunnel-queue-", dir=TUNNEL_REQUEST.parent)
+    try:
+        with os.fdopen(fd, "w") as file:
+            json.dump(request_data, file)
+            file.flush()
+            os.fsync(file.fileno())
+        os.chmod(tmp_path, 0o600)
+        # A single request slot. Atomic reservation before rename prevents overwriting.
+        try:
+            os.link(tmp_path, TUNNEL_REQUEST)
+        except FileExistsError:
+            raise HTTPException(409, "Another tunnel operation is queued")
+    finally:
+        os.unlink(tmp_path)
+    return JSONResponse({"state": "queued", "name": candidate["name"]}, status_code=202)
+
+
+@app.get("/api/tunnels/create-status")
+async def create_tunnel_status(user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if not TUNNEL_RESULT.exists():
+        return {"state": "not-run"}
+    try:
+        record = json.loads(TUNNEL_RESULT.read_text())
+        return {k: record[k] for k in ("state", "name", "protocol", "updated_at", "error", "rollback_failed") if k in record}
+    except (OSError, ValueError):
+        raise HTTPException(503, "Tunnel operation status unavailable")
