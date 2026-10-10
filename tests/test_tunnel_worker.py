@@ -69,5 +69,38 @@ class WorkerTests(unittest.TestCase):
         secret=BASE.replace(b'serverPort = 7000',b'serverPort = 7000\nauth.token = "TOPSECRET"')
         self.assertNotIn("TOPSECRET",str(worker.public_proxies(secret)))
 
+    def test_restore_requires_matching_live_hash(self):
+        import hashlib
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            conn=sqlite3.connect(Path(d)/"history.db")
+            conn.execute("CREATE TABLE versions (id INTEGER PRIMARY KEY, config BLOB, sha256 TEXT)")
+            conn.execute("INSERT INTO versions VALUES (?,?,?)", (1, BASE, hashlib.sha256(BASE).hexdigest()))
+            changed=BASE.replace(b"8050",b"8052")
+            with self.assertRaisesRegex(ValueError,"Configuration changed"):
+                worker.restore_candidate(conn, {"action":"restore","version":1,
+                    "expected_sha256":hashlib.sha256(BASE).hexdigest()}, changed)
+            with self.assertRaisesRegex(ValueError,"Already running"):
+                worker.restore_candidate(conn, {"action":"restore","version":1,
+                    "expected_sha256":hashlib.sha256(BASE).hexdigest()}, BASE)
+            restored, name, proto, action = worker.restore_candidate(conn,
+                {"action":"restore","version":1, "expected_sha256":hashlib.sha256(changed).hexdigest()},changed)
+            self.assertEqual(restored,BASE)
+            self.assertEqual(action,"restore")
+            conn.close()
+
+    def test_restore_rejects_corrupted_snapshot(self):
+        import hashlib
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            conn=sqlite3.connect(Path(d)/"history.db")
+            conn.execute("CREATE TABLE versions (id INTEGER PRIMARY KEY, config BLOB, sha256 TEXT)")
+            conn.execute("INSERT INTO versions VALUES (?,?,?)", (1, BASE, "0"*64))
+            current=BASE.replace(b"8050",b"8052")
+            with self.assertRaisesRegex(ValueError,"integrity mismatch"):
+                worker.restore_candidate(conn, {"action":"restore","version":1,
+                    "expected_sha256":hashlib.sha256(current).hexdigest()},current)
+            conn.close()
+
 if __name__=="__main__":
     unittest.main()
