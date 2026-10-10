@@ -85,6 +85,11 @@ def initialize():
             )
             db.commit()
 
+    with closing(connect()) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(sessions)")}
+        if "encrypted_refresh_token" not in columns:
+            db.execute("ALTER TABLE sessions ADD COLUMN encrypted_refresh_token BLOB")
+            db.commit()
     os.chmod(DB_PATH, 0o600)
 
 
@@ -110,7 +115,7 @@ def audit(action, result, subject=None, details=None):
 
 def create_session(
     subject, display_name, access_token, token_expires_at,
-    id_token=None
+    id_token=None, refresh_token=None
 ):
     now = int(time.time())
     sid = secrets.token_urlsafe(32)
@@ -121,6 +126,7 @@ def create_session(
         raise ValueError("Token already expired")
 
     encrypted = cipher().encrypt(access_token.encode("utf-8"))
+    encrypted_refresh = cipher().encrypt(refresh_token.encode("utf-8")) if refresh_token else None
     encrypted_id = (
         cipher().encrypt(id_token.encode("utf-8"))
         if id_token else None
@@ -131,13 +137,13 @@ def create_session(
             """
             INSERT INTO sessions (
                 session_hash, subject, display_name,
-                encrypted_token, encrypted_id_token,
+                encrypted_token, encrypted_id_token, encrypted_refresh_token,
                 created_at, last_seen, expires_at, token_expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_hash(sid), subject, display_name,
-                encrypted, encrypted_id, now, now,
+                encrypted, encrypted_id, encrypted_refresh, now, now,
                 expiry, token_expiry
             ),
         )
@@ -162,7 +168,7 @@ def get_session(session_id):
         if row is None:
             return None
 
-        if row["expires_at"] <= now or row["token_expires_at"] <= now:
+        if row["expires_at"] <= now:
             db.execute(
                 "DELETE FROM sessions WHERE session_hash = ?",
                 (hashed,),
@@ -175,6 +181,9 @@ def get_session(session_id):
                 row["encrypted_token"]
             ).decode("utf-8")
 
+            refresh_token = None
+            if row["encrypted_refresh_token"]:
+                refresh_token = cipher().decrypt(row["encrypted_refresh_token"]).decode("utf-8")
             id_token = None
             if row["encrypted_id_token"]:
                 id_token = cipher().decrypt(
@@ -189,7 +198,7 @@ def get_session(session_id):
             db.commit()
             return None
 
-        expiry = min(now + SESSION_TTL, row["token_expires_at"])
+        expiry = now + SESSION_TTL if refresh_token else min(now + SESSION_TTL, row["token_expires_at"])
 
         db.execute(
             """
@@ -205,9 +214,27 @@ def get_session(session_id):
             "sub": row["subject"],
             "name": row["display_name"],
             "access_token": token,
+            "refresh_token": refresh_token,
+            "token_expires_at": row["token_expires_at"],
             "id_token": id_token,
             "expires": expiry,
         }
+
+
+def replace_tokens(session_id, access_token, token_expires_at, refresh_token, id_token=None):
+    """Atomically rotate encrypted OAuth credentials after Keycloak refresh."""
+    now = int(time.time())
+    encrypted_access = cipher().encrypt(access_token.encode("utf-8"))
+    encrypted_refresh = cipher().encrypt(refresh_token.encode("utf-8")) if refresh_token else None
+    encrypted_id = cipher().encrypt(id_token.encode("utf-8")) if id_token else None
+    with closing(connect()) as db:
+        db.execute(
+            """UPDATE sessions SET encrypted_token=?, token_expires_at=?,
+               encrypted_refresh_token=?, encrypted_id_token=?, expires_at=?, last_seen=?
+               WHERE session_hash=?""",
+            (encrypted_access, int(token_expires_at), encrypted_refresh, encrypted_id,
+             now + SESSION_TTL, now, session_hash(session_id)))
+        db.commit()
 
 
 def revoke_session(session_id):
