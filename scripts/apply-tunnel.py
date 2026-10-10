@@ -291,6 +291,7 @@ def worker():
         backup = None
         changed = False
         history = None
+        original_mode = None
         try:
             if not ENABLED.is_file() or ENABLED.is_symlink() or ENABLED.stat().st_uid != 0:
                 raise ValueError("Tunnel writes are disabled")
@@ -302,6 +303,7 @@ def worker():
             with SOURCE.open("rb") as source:
                 current = tomllib.load(source)
             original = SOURCE.read_bytes()
+            original_mode = SOURCE.stat().st_mode & 0o777
             history = history_connection()
             ensure_baseline(history, original)
             candidate, name, proto, action = apply_operation(original, data, current)
@@ -362,6 +364,9 @@ def worker():
         except Exception as exc:
             if changed and backup:
                 shutil.copy2(backup, SOURCE)
+                # Backup is intentionally 0600; restore the original ACL mask.
+                if original_mode is not None:
+                    os.chmod(SOURCE, original_mode)
                 try:
                     run(["systemctl", "restart", "frpc"], timeout=30)
                 except Exception:
