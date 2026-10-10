@@ -18,6 +18,9 @@ import tempfile
 import time
 import tomllib
 import hashlib
+import sqlite3
+import sys
+from datetime import datetime, timezone
 
 STATE = Path("/var/lib/frp-manager")
 SOURCE = Path("/etc/frp/frpc.toml")
@@ -26,6 +29,8 @@ STATUS = STATE / "tunnel-create-status.json"
 ENABLED = Path("/etc/frp-manager/tunnel-writes-enabled")
 BACKUPS = Path("/var/backups/frp-manager/tunnels")
 MANAGE_ENABLED = Path("/etc/frp-manager/tunnel-manage-enabled")
+HISTORY_DB = STATE / "history.db"
+HISTORY_PUBLIC = STATE / "history-public.json"
 
 
 def atomic_status(value):
@@ -168,6 +173,107 @@ def apply_operation(original, data, current):
     return (text[:start] + block + text[end:]).encode(), name, proto, action
 
 
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def public_proxies(blob):
+    config = tomllib.loads(blob.decode("utf-8"))
+    result = []
+    for entry in config.get("proxies", []):
+        if not isinstance(entry, dict):
+            continue
+        result.append({k: entry.get(source) for k, source in (
+            ("name", "name"), ("protocol", "type"), ("local_ip", "localIP"),
+            ("local_port", "localPort"), ("public_port", "remotePort"))})
+    return result
+
+
+def history_connection():
+    STATE.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(HISTORY_DB, timeout=15)
+    os.chmod(HISTORY_DB, 0o600)
+    connection.execute("PRAGMA busy_timeout=15000")
+    connection.execute("PRAGMA journal_mode=DELETE")
+    connection.execute("""CREATE TABLE IF NOT EXISTS versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recorded_at TEXT NOT NULL,
+        action TEXT NOT NULL,
+        tunnel TEXT,
+        actor TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        config BLOB NOT NULL,
+        summary TEXT NOT NULL
+    )""")
+    connection.commit()
+    return connection
+
+
+def ensure_baseline(connection, current_blob):
+    row = connection.execute("SELECT id FROM versions ORDER BY id DESC LIMIT 1").fetchone()
+    if row:
+        # Do not silently attribute externally modified configuration to a panel action.
+        latest = connection.execute("SELECT sha256 FROM versions ORDER BY id DESC LIMIT 1").fetchone()[0]
+        if latest != hashlib.sha256(current_blob).hexdigest():
+            raise ValueError("Live configuration differs from last history snapshot; manual reconciliation required")
+        return
+    connection.execute(
+        "INSERT INTO versions(recorded_at, action, tunnel, actor, sha256, config, summary) VALUES(?,?,?,?,?,?,?)",
+        (utc_now(), "baseline", None, "system", hashlib.sha256(current_blob).hexdigest(),
+         current_blob, "Initial configuration snapshot"))
+    connection.commit()
+
+
+def publish_history(connection):
+    rows = connection.execute(
+        "SELECT id, recorded_at, action, tunnel, actor, sha256, summary, config "
+        "FROM versions ORDER BY id DESC LIMIT 100").fetchall()
+    result = []
+    older = {}
+    chronological = list(reversed(rows))
+    for version, at, action, tunnel, actor, digest, summary, config in chronological:
+        safe = public_proxies(config)
+        old_index = {p["name"]: p for p in older.get("proxies", []) if p.get("name")}
+        new_index = {p["name"]: p for p in safe if p.get("name")}
+        changes = []
+        for name in sorted(set(old_index) | set(new_index)):
+            before = old_index.get(name)
+            after = new_index.get(name)
+            if before != after:
+                changes.append({"name": name, "before": before, "after": after})
+        result.append({"id": version, "recorded_at": at, "action": action,
+                       "tunnel": tunnel, "actor": actor, "sha256": digest,
+                       "summary": summary, "changes": changes})
+        older = {"proxies": safe}
+    payload = {"versions": list(reversed(result)), "latest_version": result[-1]["id"] if result else None}
+    with tempfile.NamedTemporaryFile(mode="w", dir=STATE, prefix=".history-public-", delete=False) as handle:
+        path = Path(handle.name)
+        json.dump(payload, handle, separators=(",", ":"))
+        handle.write("\n")
+    os.chmod(path, 0o644)
+    os.replace(path, HISTORY_PUBLIC)
+
+
+def history_initialize():
+    with open("/run/lock/frp-manager-tunnel.lock", "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with history_connection() as connection:
+            ensure_baseline(connection, SOURCE.read_bytes())
+            publish_history(connection)
+    print("FRP history initialized. Public metadata: " + str(HISTORY_PUBLIC))
+
+
+def history_record(connection, candidate, action, name, actor):
+    connection.execute(
+        "INSERT INTO versions(recorded_at,action,tunnel,actor,sha256,config,summary) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (utc_now(), action, name, actor, hashlib.sha256(candidate).hexdigest(),
+         candidate, action.capitalize() + " tunnel " + name))
+    connection.commit()
+    publish_history(connection)
+
+
 def worker():
     if not REQUEST.is_file():
         return
@@ -184,6 +290,7 @@ def worker():
         record = {"state": "failed", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         backup = None
         changed = False
+        history = None
         try:
             if not ENABLED.is_file() or ENABLED.is_symlink() or ENABLED.stat().st_uid != 0:
                 raise ValueError("Tunnel writes are disabled")
@@ -195,6 +302,8 @@ def worker():
             with SOURCE.open("rb") as source:
                 current = tomllib.load(source)
             original = SOURCE.read_bytes()
+            history = history_connection()
+            ensure_baseline(history, original)
             candidate, name, proto, action = apply_operation(original, data, current)
             if action in ("edit", "delete") and (not MANAGE_ENABLED.is_file() or MANAGE_ENABLED.is_symlink() or MANAGE_ENABLED.stat().st_uid != 0):
                 raise ValueError("Edit/Delete operations are not enabled")
@@ -245,6 +354,7 @@ def worker():
                     if time.monotonic() >= deadline:
                         raise ValueError("FRPC proxy health check failed")
                     time.sleep(1)
+                history_record(history, candidate, action, name, "panel-admin")
                 record = {"state": "success", "name": name, "protocol": proto, "action": action,
                           "backup": str(backup), "updated_at": record["updated_at"]}
             finally:
@@ -257,10 +367,17 @@ def worker():
                 except Exception:
                     record["rollback_failed"] = True
             record["error"] = str(exc)[:200]
+        if history is not None:
+            history.close()
         atomic_status(record)
         if record["state"] != "success":
             raise SystemExit(1)
 
 
 if __name__ == "__main__":
-    worker()
+    if len(sys.argv) == 2 and sys.argv[1] == "--init-history":
+        history_initialize()
+    elif len(sys.argv) == 1:
+        worker()
+    else:
+        raise SystemExit("Unsupported arguments")
