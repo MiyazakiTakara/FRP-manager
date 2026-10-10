@@ -333,6 +333,46 @@ def history_record(connection, candidate, action, name, actor):
     publish_history(connection)
 
 
+def history_verify():
+    if not HISTORY_DB.is_file():
+        raise ValueError("History database missing")
+    connection = sqlite3.connect("file:" + str(HISTORY_DB) + "?mode=ro", uri=True)
+    try:
+        rows = connection.execute("SELECT id,sha256,config FROM versions ORDER BY id").fetchall()
+        if not rows:
+            raise ValueError("History database contains no snapshots")
+        for version, digest, config in rows:
+            if hashlib.sha256(config).hexdigest() != digest:
+                raise ValueError("Snapshot integrity mismatch at v" + str(version))
+        live = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+        if rows[-1][1] != live:
+            raise ValueError("Live FRPC configuration differs from v" + str(rows[-1][0]))
+        print("HISTORY OK: " + str(len(rows)) + " versions; live config matches v" + str(rows[-1][0]))
+    finally:
+        connection.close()
+
+
+def history_backup():
+    if not HISTORY_DB.is_file():
+        raise ValueError("History database missing")
+    destination = Path("/var/backups/frp-manager/history")
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    path = destination / ("history-" + stamp + ".db")
+    source = sqlite3.connect("file:" + str(HISTORY_DB) + "?mode=ro", uri=True)
+    target = sqlite3.connect(path)
+    try:
+        os.chmod(path, 0o600)
+        source.backup(target)
+        row = target.execute("PRAGMA integrity_check").fetchone()
+        if not row or row[0] != "ok":
+            raise ValueError("SQLite backup integrity check failed")
+    finally:
+        target.close()
+        source.close()
+    print("SQLite history backup created: " + str(path))
+
+
 def worker():
     if not REQUEST.is_file():
         return
@@ -480,6 +520,10 @@ def worker():
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "--init-history":
         history_initialize()
+    elif len(sys.argv) == 2 and sys.argv[1] == "--verify-history":
+        history_verify()
+    elif len(sys.argv) == 2 and sys.argv[1] == "--backup-history":
+        history_backup()
     elif len(sys.argv) == 1:
         worker()
     else:
