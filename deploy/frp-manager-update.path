@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch FRP Manager update requests
+
+[Path]
+PathExists=/var/lib/frp-manager/update-request
+Unit=frp-manager-update.service
+
+[Install]
+WantedBy=multi-user.target
