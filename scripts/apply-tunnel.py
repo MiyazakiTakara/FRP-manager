@@ -103,7 +103,7 @@ def status_map(config):
 def proxy_blocks(original):
     # Preserve all unrelated TOML including comments and secrets.
     text = original.decode("utf-8")
-    marker = re.compile(r"(?m)^\\s*\\[\\[proxies\\]\\]\\s*(?:#.*)?$")
+    marker = re.compile(r"(?m)^\s*\[\[proxies\]\]\s*(?:#.*)?$")
     matches = list(marker.finditer(text))
     if not matches:
         return text, []
@@ -128,9 +128,9 @@ def apply_operation(original, data, current):
         if set(data) != {"tunnel"} and set(data) != {"action", "tunnel"}:
             raise ValueError("Invalid create request")
         name, proto, host, local, remote = validate(data["tunnel"], current)
-        candidate = text.rstrip("\\n") + "\\n\\n[[proxies]]\\n" + (
-            f"name = {json.dumps(name)}\\ntype = {json.dumps(proto)}\\n"
-            f"localIP = {json.dumps(host)}\\nlocalPort = {local}\\nremotePort = {remote}\\n"
+        candidate = text.rstrip("\n") + "\n\n[[proxies]]\n" + (
+            f"name = {json.dumps(name)}\ntype = {json.dumps(proto)}\n"
+            f"localIP = {json.dumps(host)}\nlocalPort = {local}\nremotePort = {remote}\n"
         )
         return candidate.encode(), name, proto, action
 
@@ -160,7 +160,7 @@ def apply_operation(original, data, current):
     # Preserve the block heading/comments; replace only supported keys.
     replacements = {"localIP": json.dumps(host), "localPort": str(local), "remotePort": str(remote)}
     for field, value in replacements.items():
-        pattern = re.compile(r"(?m)^(\\s*" + field + r"\\s*=\\s*)([^#\\r\\n]*)(.*)$")
+        pattern = re.compile(r"(?m)^(\s*" + field + r"\s*=\s*)([^#\r\n]*)(.*)$")
         if len(pattern.findall(block)) != 1:
             raise ValueError("Ambiguous proxy configuration field " + field)
         block = pattern.sub(lambda match: match.group(1) + value + match.group(3), block)
