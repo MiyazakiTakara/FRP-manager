@@ -124,8 +124,9 @@ if [[ "$HEALTHY" -ne 1 ]]; then
 fi
 
 printf '%s\n' "$REVISION" > "$BACKUP/deployed-commit"
-printf '%s\n' "$REVISION" > "$REVISION_FILE.tmp"
-chmod 0644 "$REVISION_FILE.tmp"
-mv -f "$REVISION_FILE.tmp" "$REVISION_FILE"
+REV_TMP="$(mktemp /var/lib/frp-manager/.revision.XXXXXXXX)"
+printf '%s\n' "$REVISION" > "$REV_TMP"
+chmod 0644 "$REV_TMP"
+mv -f "$REV_TMP" "$REVISION_FILE"
 echo "Update successful: $REVISION"
 echo "Backup: $BACKUP"
