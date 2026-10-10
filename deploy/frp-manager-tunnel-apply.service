@@ -1,0 +1,16 @@
+[Unit]
+Description=Apply validated FRP tunnel creation request
+After=frpc.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/sbin/frp-manager-apply-tunnel
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/frp /var/lib/frp-manager /var/backups/frp-manager
+TimeoutStartSec=100
