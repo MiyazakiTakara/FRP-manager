@@ -158,8 +158,10 @@ def worker():
                 backup = BACKUPS / (stamp + "-" + name + ".toml")
                 shutil.copy2(SOURCE, backup)
                 os.chmod(backup, 0o600)
-                os.replace(temp, SOURCE)\n                # Verify the dashboard can still read the configuration.\n                run(["runuser", "-u", "frpmanager-svc", "--", "test", "-r", str(SOURCE)], timeout=5)
+                os.replace(temp, SOURCE)
                 changed = True
+                # Verify the dashboard can still read the configuration.
+                run(["runuser", "-u", "frpmanager-svc", "--", "test", "-r", str(SOURCE)], timeout=5)
                 run(["systemctl", "restart", "frpc"], timeout=30)
                 run(["systemctl", "is-active", "--quiet", "frpc"], timeout=10)
                 # New proxy and all previously running proxies must remain healthy.
