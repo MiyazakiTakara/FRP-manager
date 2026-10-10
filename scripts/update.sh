@@ -135,7 +135,7 @@ fi
 
 # Functional FRPC integration check; no tunnel configuration changes.
 if [[ "$HEALTHY" -eq 1 ]]; then
-  if ! runuser -u frpmanager-svc -- "$VENV_PY" -c 'from app import get_tunnels; d=get_tunnels(); assert isinstance(d["tunnels"], list); assert d["monitoring"] == "available"' </dev/null; then
+  if ! ( cd "$APP_DIR" && runuser -u frpmanager-svc -- "$VENV_PY" -c 'from app import get_tunnels; d=get_tunnels(); assert isinstance(d["tunnels"], list); assert d["monitoring"] == "available"' </dev/null ); then
     echo "FRPC read-only status test failed." >&2
     HEALTHY=0
   fi
