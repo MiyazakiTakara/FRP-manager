@@ -97,6 +97,22 @@ def run():
             result["state"] = "check-failed"
             result["downloaded"] = False
         atomic_json(RESULT, result)
+        if (result["state"] == "update-available"
+                and settings.get("auto_install", False)
+                and result.get("downloaded", False)
+                and not FAILURE.exists()):
+            proc = subprocess.run(
+                ["/usr/local/sbin/frp-manager-run-queued-update", "--auto"],
+                env={**os.environ, "FRP_EXPECTED_REVISION": result["latest"]},
+                timeout=150, check=False,
+            )
+            if proc.returncode != 0:
+                result["state"] = "install-failed"
+                atomic_json(RESULT, result)
+            else:
+                result["state"] = "up-to-date"
+                result["installed"] = result["latest"]
+                atomic_json(RESULT, result)
 
 
 if __name__ == "__main__":
