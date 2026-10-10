@@ -1,0 +1,6 @@
+fastapi
+authlib
+httpx
+uvicorn
+itsdangerous
+cryptography
