@@ -100,3 +100,29 @@ sudo install -o root -g root -m 0755 scripts/run-queued-update.sh /usr/local/sbi
 Only checked-in application source files are deployed. Python dependencies,
 systemd units, configuration values, and the updater itself are not changed by
 the web installer. They require explicitly reviewed operator updates.
+
+## Optional automatic installation
+
+The **Auto-install downloaded updates** checkbox is disabled by default.
+Only a Keycloak user with the `frp-admin` role can enable it. This option
+requires **Automatically download updates** to remain enabled.
+
+When a newer GitHub commit is detected, the checker validates and downloads
+it, then calls the fixed root-owned update runner. The updater verifies the
+expected commit SHA, creates a backup and checks application startup,
+unauthenticated API access controls, and read-only FRPC status. No FRP
+configuration or tunnel services are restarted.
+
+If a deployment fails, the runner writes an `update-auto-paused` marker.
+Subsequent automatic checks and installations stop until an administrator
+selects **Resume checks**. Manual installation remains available, including
+for recovery.
+
+These tests do **not** prove a real interactive Keycloak login works; this
+should be checked after upgrading the service, especially when SSO code
+changes.
+
+**Important:** auto-install trusts the repository's main branch. Enable it
+only if GitHub write access is tightly controlled and reviewed changes are
+required. For maximum stability, prefer a release branch or pinned signed
+releases instead of automatically deploying every new main-branch commit.
