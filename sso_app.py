@@ -742,7 +742,22 @@ document.getElementById("apply").addEventListener("click",async()=>{
  if(r.status===401){window.location.assign("/login");return;}
  const data=await r.json();
  document.getElementById("result").textContent=r.ok?"Operation queued. Check the status in a moment.":(data.detail||"Request failed");
- if(r.ok){document.getElementById("apply").hidden=true;pending=null;}
+ if(r.ok){
+  document.getElementById("apply").hidden=true;pending=null;
+  const started=Date.now(),result=document.getElementById("result");
+  const timer=setInterval(async()=>{
+    try{
+      const res=await fetch("/api/tunnels/create-status",{cache:"no-store"});
+      if(res.status===401){clearInterval(timer);window.location.assign("/login");return;}
+      if(!res.ok)return;
+      const info=await res.json();
+      if(info.state==="success"||info.state==="failed"){
+        clearInterval(timer);
+        result.textContent=info.state==="success"?"Operation completed successfully.":("Operation failed: "+(info.error||"Unknown reason")+(info.rollback_failed?" (rollback failed)":" (rollback requested if configuration was changed)"));
+      } else if(Date.now()-started>90000){clearInterval(timer);result.textContent="Still processing. Check operation status later.";}
+    }catch(err){if(Date.now()-started>90000)clearInterval(timer);}
+  },2000);
+}
 });
 </script></body></html>"""
     values={"name":proxy["name"],"protocol":proxy["type"],"local_ip":proxy.get("localIP"),
