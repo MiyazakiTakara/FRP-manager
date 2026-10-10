@@ -237,8 +237,35 @@ def history_connection():
         config BLOB NOT NULL,
         summary TEXT NOT NULL
     )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS operation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recorded_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        tunnel TEXT,
+        outcome TEXT NOT NULL,
+        error TEXT,
+        rollback_failed INTEGER NOT NULL DEFAULT 0
+    )""")
     connection.commit()
     return connection
+
+
+def record_operation_event(connection, actor, action, tunnel, outcome, error=None, rollback_failed=False):
+    connection.execute(
+        "INSERT INTO operation_events(recorded_at,actor,action,tunnel,outcome,error,rollback_failed) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (utc_now(), actor, action, tunnel, outcome, error, int(rollback_failed)))
+    connection.commit()
+
+
+def export_operation_events(connection):
+    rows = connection.execute(
+        "SELECT id,recorded_at,actor,action,tunnel,outcome,error,rollback_failed "
+        "FROM operation_events ORDER BY id DESC LIMIT 100").fetchall()
+    return [{"id": r[0], "recorded_at":r[1], "actor":r[2], "action":r[3],
+             "tunnel":r[4], "outcome":r[5], "error":r[6],
+             "rollback_failed":bool(r[7])} for r in rows]
 
 
 def ensure_baseline(connection, current_blob):
@@ -277,7 +304,8 @@ def publish_history(connection):
                        "tunnel": tunnel, "actor": actor, "sha256": digest,
                        "summary": summary, "changes": changes})
         older = {"proxies": safe}
-    payload = {"versions": list(reversed(result)), "latest_version": result[-1]["id"] if result else None}
+    payload = {"versions": list(reversed(result)), "latest_version": result[-1]["id"] if result else None,
+               "operations": export_operation_events(connection)}
     with tempfile.NamedTemporaryFile(mode="w", dir=STATE, prefix=".history-public-", delete=False) as handle:
         path = Path(handle.name)
         json.dump(payload, handle, separators=(",", ":"))
@@ -323,6 +351,9 @@ def worker():
         changed = False
         history = None
         original_mode = None
+        actor = "unknown"
+        action = "unknown"
+        name = None
         try:
             if not ENABLED.is_file() or ENABLED.is_symlink() or ENABLED.stat().st_uid != 0:
                 raise ValueError("Tunnel writes are disabled")
@@ -414,6 +445,8 @@ def worker():
                         raise ValueError("FRPC proxy health check failed" + (": " + last_problem if last_problem else ""))
                     time.sleep(1)
                 history_record(history, candidate, action, name, actor)
+                record_operation_event(history, actor, action, name, "success")
+                publish_history(history)
                 record = {"state": "success", "name": name, "protocol": proto, "action": action,
                           "backup": str(backup), "updated_at": record["updated_at"]}
             finally:
@@ -429,6 +462,13 @@ def worker():
                 except Exception:
                     record["rollback_failed"] = True
             record["error"] = str(exc)[:200]
+            if history is not None:
+                try:
+                    record_operation_event(history, actor, action, name, "failed",
+                                           record["error"], record.get("rollback_failed", False))
+                    publish_history(history)
+                except Exception:
+                    pass
         if history is not None:
             history.close()
         atomic_status(record)
