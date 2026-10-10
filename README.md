@@ -28,7 +28,7 @@ FRP Manager runs alongside an existing `frpc` client. It reads tunnel state via 
 
 ## Deployment
 
-Deployment instructions and an audited upgrade script are not yet complete. **Do not replace the running production application from this repository.** The source snapshot has only been syntax-checked; it has not been end-to-end tested as a clean deployment. Configuration values in `.env.example` are placeholders.
+An initial CLI updater with startup rollback and an administrator-only web update workflow are implemented. See [Update guide](docs/updating.md). **Do not deploy the updater in production until the release has passed staging testing.** The source snapshot has not been end-to-end tested as a clean deployment. Configuration values in `.env.example` are placeholders.
 
 Runtime secrets, FRP tokens, SSH credentials, session databases and real infrastructure configurations must never be committed. See [SECURITY.md](SECURITY.md).
 
