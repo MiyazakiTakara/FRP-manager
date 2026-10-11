@@ -43,6 +43,11 @@ def read_events(lines):
         try:
             raw=json.loads(line)
             message=raw.get("MESSAGE","")
+            if isinstance(message,list):
+                try:
+                    message=bytes(message).decode("utf-8","replace")
+                except (ValueError,TypeError):
+                    continue
             if not isinstance(message,str):
                 continue
             classified=classify(message)
