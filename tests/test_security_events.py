@@ -36,6 +36,13 @@ class SecurityEventsTests(unittest.TestCase):
         self.assertNotIn("secret-token-123",json.dumps(result))
         self.assertEqual(result[0]["category"],"port_rejected")
 
+    def test_journald_byte_array_message(self):
+        message="non-TLS connection received on a TlsOnly server"
+        row=json.dumps({"MESSAGE":list(message.encode()),"__REALTIME_TIMESTAMP":"1791705789245574"})
+        events=module.read_events([row])
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0]["category"],"tls_rejected")
+
     def test_ignore_unclassified(self):
         self.assertEqual(module.read_events([line("routine keepalive",1760000000000000)]),[])
 
