@@ -469,7 +469,7 @@ $("form-apply").addEventListener("click",async()=>{if(tunnelBusy||!tunnelCanWrit
 function namedTunnel(row,t){const td=cell(row,t.name),meta=tunnelMeta[t.name]||{};if((meta.tags||[]).length){const tags=document.createElement("span");tags.className="note";tags.style.marginLeft="8px";tags.textContent=meta.tags.join(", ");td.append(tags)}if(meta.maintenance_until&&Date.parse(meta.maintenance_until)>Date.now()){const badge=document.createElement("span");badge.className="signal warning";badge.style.marginLeft="8px";badge.textContent="Maintenance";td.append(badge)}return td}
 function renderOverviewTunnels(){const body=$("overview-tunnels");body.replaceChildren();for(const t of tunnels.slice(0,10)){const tr=document.createElement("tr");namedTunnel(tr,t);cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);body.append(tr)}if(!tunnels.length)empty(body,"No configured tunnels")}
 function renderRecent(){const list=$("recent");list.replaceChildren();const important=security.filter(e=>e.severity==="high"||e.severity==="warning").slice(0,5);if(!important.length){const li=document.createElement("li");li.textContent="No recent warning or high severity events";list.append(li);return}for(const e of important){const li=document.createElement("li"),label=document.createElement("span"),stamp=document.createElement("span");label.textContent=e.category.replaceAll("_"," ");label.className="signal "+e.severity;stamp.textContent=fmt(e.timestamp)+" UTC";stamp.className="note";li.append(label,stamp);list.append(li)}}
-function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify({t,meta:tunnelMeta[t.name]||{}}).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");namedTunnel(tr,t);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const probe=document.createElement("button");probe.className="btn";probe.type="button";probe.textContent="Test target";probe.style.marginRight="10px";probe.addEventListener("click",async()=>{probe.disabled=true;probe.textContent="Checking…";try{const result=await api("/api/health/target-check?name="+encodeURIComponent(t.name));probe.textContent=result.result;probe.title=result.detail}catch(e){probe.textContent="Check failed";probe.title=e.message}finally{setTimeout(()=>{probe.disabled=false;probe.textContent="Test target"},6000)}});td.append(probe);const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
+function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify({t,meta:tunnelMeta[t.name]||{}}).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");namedTunnel(tr,t);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const probe=document.createElement("button");probe.className="btn";probe.type="button";probe.textContent="Test target";probe.style.marginRight="10px";probe.addEventListener("click",async()=>{probe.disabled=true;probe.textContent="Checking…";try{const result=await api("/api/health/target-check?name="+encodeURIComponent(t.name));probe.textContent=({tunnel_online:"Tunnel online",not_running:"Not running",not_online:"FRPS offline",inconclusive:"Inconclusive"}[result.result]||result.result);probe.title=result.detail;let detail=td.querySelector(".target-check-detail");if(!detail){detail=document.createElement("div");detail.className="note target-check-detail";td.append(detail)}detail.textContent=result.detail}catch(e){probe.textContent="Check failed";probe.title=e.message}finally{setTimeout(()=>{probe.disabled=false;probe.textContent="Test target"},6000)}});td.append(probe);const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
 let lastIncidentFocus=null;
 function showIncident(event){const area=$("incident-body");area.replaceChildren();const dl=document.createElement("dl");for(const [key,val] of Object.entries({timestamp:fmt(event.timestamp)+" UTC",severity:event.severity,category:event.category,count:event.count,...(event.details||{})})){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.className="muted";dt.textContent=key.replaceAll("_"," ");dd.textContent=String(val);dd.style.margin="0 0 10px";dl.append(dt,dd)}area.append(dl);lastIncidentFocus=document.activeElement;$("incident").showModal();$("close-incident").focus()}
 function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value,range=Number($("time-filter").value);const cutoff=Date.now()-range*3600000;const filtered=security.filter(e=>(!sev||e.severity===sev)&&(!q||JSON.stringify(e).toLowerCase().includes(q))&&new Date(e.timestamp).getTime()>=cutoff);const size=Number($("page-size").value),pages=Math.max(1,Math.ceil(filtered.length/size));securityPage=Math.min(securityPage,pages-1);const offset=securityPage*size;
@@ -1291,9 +1291,38 @@ async def target_check(name: str, user=Depends(current_user)):
     proxy = next((p for p in read_config().get("proxies", []) if p.get("name") == name), None)
     if proxy is None:
         raise HTTPException(404, "Tunnel not found")
+    if proxy.get("type") == "udp":
+        # UDP connect()/sendto() is not proof of delivery or application health.
+        # Use only observed FRPC and FRPS state, without injecting game traffic.
+        try:
+            snapshot = await asyncio.to_thread(get_tunnels)
+            tunnel = next((t for t in snapshot["tunnels"] if t["name"] == name), None)
+            if snapshot["monitoring"] != "available" or not tunnel:
+                return {"name": name, "result": "inconclusive",
+                        "detail": "FRPC monitoring unavailable; UDP target not tested"}
+            if str(tunnel["status"]).lower() != "running":
+                return {"name": name, "result": "not_running",
+                        "detail": "FRPC does not report this UDP tunnel as running; target not tested"}
+        except (OSError, RuntimeError, ValueError, KeyError):
+            return {"name": name, "result": "inconclusive",
+                    "detail": "Unable to verify FRPC tunnel status; UDP target not tested"}
+        try:
+            metrics = await asyncio.to_thread(get_frps_metrics)
+            proxies = metrics.get("proxies", [])
+            match = next((p for p in proxies if p.get("name") == name and p.get("protocol") == "udp"), None)
+            if metrics.get("available") is True and match:
+                if str(match.get("status", "")).lower() == "online":
+                    return {"name": name, "result": "tunnel_online",
+                            "detail": "FRPC running and FRPS online. UDP packet delivery and game response not verified"}
+                return {"name": name, "result": "not_online",
+                        "detail": "FRPC running, but FRPS does not report UDP proxy online; target not tested"}
+        except (OSError, RuntimeError, ValueError, KeyError):
+            pass
+        return {"name": name, "result": "inconclusive",
+                "detail": "FRPC reports running, but FRPS status is unavailable; UDP delivery not verified"}
     if proxy.get("type") != "tcp":
-        return {"name": name, "result": "unsupported",
-                "detail": "UDP requires protocol-specific probing; no packets were sent"}
+        return {"name": name, "result": "inconclusive",
+                "detail": "This protocol has no universal target connectivity test"}
     host, port = str(proxy.get("localIP", "")), proxy.get("localPort")
     try:
         ipaddress.IPv4Address(host)
