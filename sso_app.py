@@ -426,6 +426,7 @@ $("all-security").addEventListener("click",e=>{e.preventDefault();switchTab("sec
 load();pollSecurity(true);
 setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},15000);
 setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="security"))pollSecurity()},30000);
+setInterval(()=>{if(document.visibilityState==="visible"&&tab==="health")load()},30000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(tab==="overview"||tab==="tunnels")load();if(tab==="overview"||tab==="security")pollSecurity()}});
 </script></body></html>
 """
