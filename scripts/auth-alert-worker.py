@@ -92,8 +92,12 @@ def run():
     if previous is None:
         persist(observation)
         return
-    if observation["count"]>=3 and observation["latest"]!=previous.get("latest"):
+    now=datetime.now(timezone.utc).timestamp()
+    last=float(previous.get("last_notified",0))
+    observation["last_notified"]=last
+    if observation["count"]>=3 and observation["latest"]!=previous.get("latest") and now-last>=1800:
         notify(webhook,observation["count"])
+        observation["last_notified"]=now
     persist(observation)
 
 if __name__=="__main__":
