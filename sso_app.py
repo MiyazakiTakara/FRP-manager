@@ -469,7 +469,7 @@ if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").tex
 if(tab==="health"){const d=await api("/api/health/history?limit=100");const body=$("health-rows");body.replaceChildren();$("health-timeline").replaceChildren();const cards=$("health-current");cards.replaceChildren();const sampled=new Date(d.sampled_at||0).getTime();const fresh=d.available&&Number.isFinite(sampled)&&Date.now()-sampled<120000;for(const state of d.states||[]){const box=document.createElement("div"),name=document.createElement("div"),value=document.createElement("div"),duration=document.createElement("div");box.className="card";name.className="note";value.className="state "+(fresh?stateClass(state.state):"unknown");duration.className="note";name.textContent=state.subject;value.textContent=fresh?state.state:"Unknown (stale sample)";const since=new Date(state.changed_at).getTime();duration.textContent=Number.isFinite(since)&&fresh?"Observed for "+Math.max(0,Math.floor((Date.now()-since)/60000))+" min":"Duration unknown";box.append(name,value,duration);cards.append(box)}for(const e of d.events||[]){const tr=document.createElement("tr");cell(tr,fmt(e.recorded_at));cell(tr,e.subject);cell(tr,e.previous);stateCell(tr,e.current);body.append(tr);if($("health-timeline").children.length<12){const li=document.createElement("li");li.className=stateClass(e.current);const label=document.createElement("span");label.textContent=fmt(e.recorded_at)+" UTC · "+e.subject;const val=document.createElement("span");val.textContent=status(e.current);li.append(label,val);$("health-timeline").append(li)}}if(!body.children.length)empty(body,"No health transitions recorded")}
 if(tab==="security"){await pollSecurity();renderSecurity();}
 if(tab==="traffic"){const data=await api("/api/metrics/traffic"),root=$("traffic-list");root.replaceChildren();if(!data.available){root.textContent=data.reason||"Remote metrics unavailable"}else{const table=document.createElement("table");const head=document.createElement("tr");for(const col of ["Tunnel","Connections","Today IN","Today OUT"]){const cell=document.createElement("th");cell.textContent=col;head.append(cell)}table.append(head);for(const p of data.proxies){const tr=document.createElement("tr");cell(tr,p.name);cell(tr,p.counters?.curConns??"Not reported");cell(tr,p.counters?.todayTrafficIn==null?"Not reported":(p.counters.todayTrafficIn/1024/1024).toFixed(2)+" MiB");cell(tr,p.counters?.todayTrafficOut==null?"Not reported":(p.counters.todayTrafficOut/1024/1024).toFixed(2)+" MiB");table.append(tr)}root.append(table);if(!data.proxies.length)root.textContent="No proxy counters reported"}}}
-if(tab==="backup"){const d=await api("/api/history");$("backup-status").textContent=(d.versions||[]).length+" audited configuration versions recorded; this is NOT proof of full disaster-recovery backup."}
+if(tab==="backup"){const [history,archive]=await Promise.all([api("/api/history"),api("/api/backups/status")]);$("backup-status").textContent=(history.versions||[]).length+" audited versions · "+(archive.available?"last verified local archive: "+fmt(archive.last_created_at)+" UTC ("+archive.files+" files)":"no verified local archive reported")+". Offsite backup and restore have NOT been verified."}
 if(tab==="alerts"){const d=await api("/api/alerts/status");$("alerts-status").textContent=d.configured?"Active · last check "+fmt(d.checked_at)+" UTC · "+d.monitored_subjects+" subjects":"Not configured or no successful check yet"}
 if(tab==="diagnostics"){const data=await api("/api/diagnostics"),root=$("diag-list");root.replaceChildren();for(const c of data.checks){const row=document.createElement("div"),label=document.createElement("strong"),detail=document.createElement("p");row.style.padding="12px 0";row.style.borderBottom="1px solid var(--border)";label.textContent=c.name+" · "+c.result.toUpperCase();label.className=c.result==="passed"?"good":c.result==="failed"?"bad":"warn";detail.textContent=c.detail;row.append(label,detail);root.append(row)}}
 if(tab==="topology"){const data=await api("/api/health/tunnels"),root=$("topology-list");root.replaceChildren();for(const t of data.tunnels||[]){const row=document.createElement("div");row.className="card";row.style.marginBottom="10px";const line=document.createElement("strong"),detail=document.createElement("div");line.textContent="Internet → OVH FRPS → FRPC → "+(t.local_ip||"local host");detail.className="note";detail.textContent=t.name+" · "+t.protocol+" · public :"+t.public_port+" → local :"+t.local_port+" · "+t.status;row.append(line,detail);root.append(row)}if(!root.children.length)root.textContent="No tunnels"}
@@ -1301,6 +1301,18 @@ async def traffic_metrics(user=Depends(current_user)):
         return await asyncio.to_thread(get_frps_metrics)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
         return {"available":False,"reason":"OVH metric helper unavailable or not installed","proxies":[]}
+
+
+@app.get("/api/backups/status")
+async def backups_status(user=Depends(current_user)):
+    path=Path("/var/lib/frp-manager/backup-public.json")
+    try:
+        item=json.loads(path.read_text(encoding="utf-8"))
+        return {"available":bool(item.get("verified")),"scope":item.get("scope"),
+                "last_created_at":item.get("created_at"),"files":item.get("files"),
+                "local_only":True}
+    except (OSError,ValueError):
+        return {"available":False,"reason":"No verified local backup status; offsite backup not assessed"}
 
 
 @app.get("/api/alerts/status")
