@@ -24,6 +24,11 @@ class SecurityEventsTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertEqual(module.classify(source)[0],expected)
 
+    def test_token_mismatch_alert(self):
+        result=module.classify("register control error: token login doesn't match token configuration")
+        self.assertEqual(result[0],"authentication_failed")
+        self.assertEqual(result[1],"high")
+
     def test_actual_proxy_name(self):
         message="new proxy [udp-8050] type [udp] success"
         classified=module.classify(message)
