@@ -423,7 +423,7 @@ load=async function(){await initialLoad();if(!$("error").textContent){lastOK=Dat
 async function pollSecurity(force=false){if(securityBusy||document.visibilityState!=="visible")return;if(!force&&Date.now()-lastSecurity<90000)return;securityBusy=true;try{const d=await api("/api/security/events");security=d.events||[];lastSecurity=Date.now();renderRecent();if(tab==="security")renderSecurity();$("security-stamp").textContent="FRPS journal · updated "+new Date().toLocaleTimeString()}catch(e){$("security-stamp").textContent="Security feed unavailable: "+e.message}finally{securityBusy=false}}
 $("all-tunnels").addEventListener("click",e=>{e.preventDefault();switchTab("tunnels")});
 $("all-security").addEventListener("click",e=>{e.preventDefault();switchTab("security")});
-pollSecurity(true);
+load();pollSecurity(true);
 setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},15000);
 setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="security"))pollSecurity()},30000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(tab==="overview"||tab==="tunnels")load();if(tab==="overview"||tab==="security")pollSecurity()}});
