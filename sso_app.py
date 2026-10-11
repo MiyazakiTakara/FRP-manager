@@ -1090,20 +1090,21 @@ async def restore_csrf(request: Request, user=Depends(current_user)):
     request.session["tunnel_restore_csrf"] = token
     return {"csrf": token, "enabled": RESTORE_ENABLED.is_file()}
 
-HEALTH_DB = Path("/var/lib/frp-manager/health.db")
+HEALTH_PUBLIC = Path("/var/lib/frp-manager/health-public.json")
 
 
 def read_health_events(limit=100):
-    if not HEALTH_DB.is_file():
+    if not HEALTH_PUBLIC.is_file():
         return {"available": False, "states": [], "events": []}
-    with sqlite3.connect("file:" + str(HEALTH_DB) + "?mode=ro", uri=True) as db:
-        states = db.execute("SELECT subject,state,changed_at FROM health_state").fetchall()
-        events = db.execute(
-            "SELECT recorded_at,subject,previous,current,reason FROM health_events ORDER BY id DESC LIMIT ?",
-            (min(500,max(1,limit)),)).fetchall()
-    return {"available": True,
-            "states": [dict(zip(("subject","state","changed_at"),r)) for r in states],
-            "events": [dict(zip(("recorded_at","subject","previous","current","reason"),r)) for r in events]}
+    try:
+        with HEALTH_PUBLIC.open(encoding="utf-8") as stream:
+            data=json.load(stream)
+        if not isinstance(data,dict) or not isinstance(data.get("events"),list):
+            raise ValueError("Invalid health export")
+        return {"available":True,"sampled_at":data.get("sampled_at"),
+                "states":data.get("states",[]),"events":data["events"][:min(500,max(1,limit))]}
+    except (OSError,ValueError):
+        raise HTTPException(503,"Health export unavailable")
 
 
 @app.get("/api/health/overview")
@@ -1131,5 +1132,5 @@ async def health_history(user=Depends(current_user),limit:int=100):
 
 @app.get("/api/health/metrics")
 async def health_metrics(user=Depends(current_user)):
-    return {"available":HEALTH_DB.is_file(),"latency_ms":None,
+    return {"available":HEALTH_PUBLIC.is_file(),"latency_ms":None,
             "availability_percent":None,"transfer_bytes":None}
