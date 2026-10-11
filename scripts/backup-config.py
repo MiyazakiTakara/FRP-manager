@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import tarfile
 import tempfile
+import sqlite3
 
 DEST=Path("/var/backups/frp-manager")
 FILES={
@@ -33,7 +34,18 @@ def files_to_archive(paths=FILES):
             continue
         if path.stat().st_size > MAX_BYTES:
             raise RuntimeError("Backup source exceeds size cap: "+name)
-        content[name]=path.read_bytes()
+        if path.suffix==".db":
+            fd, snapshot=tempfile.mkstemp(prefix=".frp-snapshot-",suffix=".db")
+            os.close(fd)
+            try:
+                with sqlite3.connect("file:"+str(path)+"?mode=ro",uri=True) as source:
+                    with sqlite3.connect(snapshot) as target:
+                        source.backup(target)
+                content[name]=Path(snapshot).read_bytes()
+            finally:
+                Path(snapshot).unlink(missing_ok=True)
+        else:
+            content[name]=path.read_bytes()
     return content
 
 def build(out_dir=DEST,paths=FILES):
