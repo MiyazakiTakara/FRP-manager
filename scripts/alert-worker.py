@@ -90,7 +90,7 @@ def run():
         sent[subject+":"+state]=now
     atomic_write(STATE,{"states":current,"sent":sent})
     atomic_write(STATUS,{"enabled":True,"checked_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                         "monitored_subjects":len(current),"alerts_sent":len(notices)})
+                         "monitored_subjects":len(current),"alerts_sent":len(notices)},mode=0o644)
     return {"enabled":True,"alerts_sent":len(notices)}
 
 if __name__=="__main__":
