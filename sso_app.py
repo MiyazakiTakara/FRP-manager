@@ -564,6 +564,9 @@ input,select,textarea{background:#121a25!important;border:1px solid #3a4556!impo
 button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px;cursor:pointer}
 button:hover{background:#3a4c69}button:disabled{opacity:.45;cursor:not-allowed}
 article,pre,details{border-color:#30394a!important}pre{background:#151e2b!important;color:#dce6f5!important;overflow:auto}
+.confirm-dialog{background:#182232;color:#eef2f8;border:1px solid #53627b;border-radius:14px;padding:24px;width:min(440px,calc(100vw - 28px));box-shadow:0 24px 70px #000a}
+.confirm-dialog::backdrop{background:#050911d9}.confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.confirm-dialog input{width:100%}.confirm-dialog h2{margin-top:0}.confirm-dialog .danger{background:#76313b;color:#fff}
 </style></head><body><p><a href="/">← Back to tunnels</a></p>
 <h1>Add tunnel</h1><p class="note">Validate the tunnel before creating it. Preview is read-only; creation requires administrator approval and may restart FRPC.</p>
 <form id="form">
@@ -575,7 +578,10 @@ article,pre,details{border-color:#30394a!important}pre{background:#151e2b!import
 <button type="submit">Validate and preview</button></form>
 <p class="note">Port availability on the remote FRPS firewall is not verified by this preview.</p>
 <div id="feedback" role="status" aria-live="polite"></div><pre id="preview" hidden></pre><button id="create" type="button" hidden>Create tunnel</button><p id="result" role="status"></p>
+<dialog class="confirm-dialog" id="custom-confirm" aria-labelledby="confirm-title"><h2 id="confirm-title">Confirm operation</h2><p id="confirm-question"></p><label id="confirm-label" hidden>Type the tunnel name<input id="confirm-name" autocomplete="off"></label><div class="confirm-actions"><button type="button" id="confirm-cancel">Cancel</button><button type="button" id="confirm-accept">Continue</button></div></dialog>
 <script>
+function customConfirm(message,expectedName=""){return new Promise(resolve=>{const modal=document.getElementById("custom-confirm"),input=document.getElementById("confirm-name"),label=document.getElementById("confirm-label"),accept=document.getElementById("confirm-accept");document.getElementById("confirm-question").textContent=message;input.value="";label.hidden=!expectedName;accept.disabled=!!expectedName;accept.classList.toggle("danger",!!expectedName);function changed(){accept.disabled=!!expectedName&&input.value!==expectedName}function done(ok){input.removeEventListener("input",changed);accept.removeEventListener("click",yes);cancel.removeEventListener("click",no);modal.removeEventListener("cancel",esc);if(modal.open)modal.close();resolve(ok)}function yes(){done(true)}function no(){done(false)}function esc(){done(false)}const cancel=document.getElementById("confirm-cancel");input.addEventListener("input",changed);accept.addEventListener("click",yes);cancel.addEventListener("click",no);modal.addEventListener("cancel",esc,{once:true});modal.showModal();(expectedName?input:cancel).focus()})}
+
 const csrf="__TOKEN__";
 document.getElementById("form").addEventListener("submit",async e=>{
  e.preventDefault();const feedback=document.getElementById("feedback");
@@ -594,7 +600,7 @@ document.getElementById("form").addEventListener("submit",async e=>{
  }catch(err){feedback.className="error";feedback.textContent="Unable to validate tunnel."}
 });
 document.getElementById("create").addEventListener("click",async()=>{
- if(!confirm("Create this tunnel and restart FRPC? Existing tunnels will be checked."))return;
+ if(!await customConfirm("Create this tunnel and restart FRPC? Existing tunnels will be checked."))return;
  const value=id=>document.getElementById(id).value;
  const body={name:value("name"),protocol:value("protocol"),local_ip:value("local_ip"),
  local_port:Number(value("local_port")),public_port:Number(value("public_port"))};
@@ -740,6 +746,9 @@ input,select,textarea{background:#121a25!important;border:1px solid #3a4556!impo
 button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px;cursor:pointer}
 button:hover{background:#3a4c69}button:disabled{opacity:.45;cursor:not-allowed}
 article,pre,details{border-color:#30394a!important}pre{background:#151e2b!important;color:#dce6f5!important;overflow:auto}
+.confirm-dialog{background:#182232;color:#eef2f8;border:1px solid #53627b;border-radius:14px;padding:24px;width:min(440px,calc(100vw - 28px));box-shadow:0 24px 70px #000a}
+.confirm-dialog::backdrop{background:#050911d9}.confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.confirm-dialog input{width:100%}.confirm-dialog h2{margin-top:0}.confirm-dialog .danger{background:#76313b;color:#fff}
 </style></head>
 <body><a href="/">← Back to tunnels</a><h1>Manage tunnel</h1>
 <p>Preview mode. Editing and deleting will require confirmation and safe backup/rollback.</p>
@@ -752,7 +761,10 @@ article,pre,details{border-color:#30394a!important}pre{background:#151e2b!import
 <button type="submit">Preview edit</button>
 </form><button id="delete">Preview delete</button>
 <p id="result" role="status"></p><pre id="preview"></pre><button id="apply" type="button" hidden>Apply change</button>
+<dialog class="confirm-dialog" id="custom-confirm" aria-labelledby="confirm-title"><h2 id="confirm-title">Confirm operation</h2><p id="confirm-question"></p><label id="confirm-label" hidden>Type the tunnel name<input id="confirm-name" autocomplete="off"></label><div class="confirm-actions"><button type="button" id="confirm-cancel">Cancel</button><button type="button" id="confirm-accept">Continue</button></div></dialog>
 <script>
+function customConfirm(message,expectedName=""){return new Promise(resolve=>{const modal=document.getElementById("custom-confirm"),input=document.getElementById("confirm-name"),label=document.getElementById("confirm-label"),accept=document.getElementById("confirm-accept");document.getElementById("confirm-question").textContent=message;input.value="";label.hidden=!expectedName;accept.disabled=!!expectedName;accept.classList.toggle("danger",!!expectedName);function changed(){accept.disabled=!!expectedName&&input.value!==expectedName}function done(ok){input.removeEventListener("input",changed);accept.removeEventListener("click",yes);cancel.removeEventListener("click",no);modal.removeEventListener("cancel",esc);if(modal.open)modal.close();resolve(ok)}function yes(){done(true)}function no(){done(false)}function esc(){done(false)}const cancel=document.getElementById("confirm-cancel");input.addEventListener("input",changed);accept.addEventListener("click",yes);cancel.addEventListener("click",no);modal.addEventListener("cancel",esc,{once:true});modal.showModal();(expectedName?input:cancel).focus()})}
+
 const original=__DATA__;
 const allowApply=__ALLOW_APPLY__;
 let pending=null;
@@ -771,8 +783,7 @@ if(r.status===401){window.location.assign("/login");return;}
 document.getElementById("preview").textContent=r.ok?JSON.stringify(d,null,2):"";
 });
 document.getElementById("delete").addEventListener("click",async()=>{
- const confirmed=prompt("Type the tunnel name to preview deletion:");
- if(confirmed!==original.name)return;
+ if(!await customConfirm("Preview deletion of tunnel "+original.name+"? Enter the exact tunnel name.",original.name))return;
  const r=await fetch("/api/tunnels/manage-preview",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify({action:"delete",name:original.name})});
  if(r.status===401){window.location.assign("/login");return;}
  const d=await r.json();document.getElementById("result").textContent=r.ok?"Delete preview ready. No changes made.":d.detail;
@@ -782,8 +793,8 @@ document.getElementById("delete").addEventListener("click",async()=>{
 document.getElementById("apply").addEventListener("click",async()=>{
  if(!pending)return;
  const action=pending.action;
- if(action==="delete" && prompt("Confirm deletion. Enter tunnel name:")!==original.name)return;
- if(!confirm((action==="delete"?"Delete":"Edit")+" tunnel "+original.name+" and restart FRPC?"))return;
+ if(action==="delete" && !await customConfirm("Confirm permanent removal of "+original.name+". Enter the exact tunnel name.",original.name))return;
+ if(!await customConfirm((action==="delete"?"Delete":"Edit")+" tunnel "+original.name+" and restart FRPC?"))return;
  const r=await fetch("/api/tunnels/manage-apply",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"__TOKEN__"},body:JSON.stringify(pending)});
  if(r.status===401){window.location.assign("/login");return;}
  const data=await r.json();
