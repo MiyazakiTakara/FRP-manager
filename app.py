@@ -169,6 +169,27 @@ def get_ovh():
     return data
 
 
+def get_frps_metrics():
+    """Limited read-only server metrics via fixed audited SSH command."""
+    if not OVH_HOST:
+        raise RuntimeError("FRPS host not configured")
+    output=command(
+        "ssh", "-i", SSH_KEY, "-o", "IdentitiesOnly=yes",
+        "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+        "-o", "UserKnownHostsFile="+os.getenv("FRPS_SSH_KNOWN_HOSTS",
+              "/etc/frp-manager/ssh/known_hosts"),
+        "-o", "ConnectTimeout=5",
+        f"{OVH_USER}@{OVH_HOST}",
+        "sudo -n /usr/local/sbin/frp-manager-metrics",
+        timeout=12)
+    if len(output)>50000:
+        raise ValueError("Metrics response exceeded limit")
+    data=json.loads(output)
+    if type(data) is not dict or type(data.get("available")) is not bool or type(data.get("proxies")) is not list:
+        raise ValueError("Invalid remote metrics response")
+    return data
+
+
 def get_security_events():
     if not OVH_HOST:
         raise RuntimeError("FRPS SSH host is not configured")
