@@ -23,6 +23,7 @@ from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
 from app import get_tunnels, get_ovh, read_config, get_security_events
+import ui_store
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
 CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
@@ -570,6 +571,45 @@ def validate_tunnel_candidate(data):
     }
 
 
+@app.get("/api/tunnels/metadata")
+async def tunnel_metadata(user=Depends(current_user)):
+    names = {p.get("name") for p in read_config().get("proxies", [])}
+    try:
+        entries = ui_store.list_all()
+    except (OSError, sqlite3.Error, RuntimeError):
+        return {"enabled": False, "entries": {}}
+    return {"enabled": True, "entries": {k: v for k,v in entries.items() if k in names}}
+
+
+@app.post("/api/tunnels/metadata/{name}")
+async def save_tunnel_metadata(name: str, request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    token = request.session.get("tunnel_meta_csrf", "")
+    if not token or not hmac.compare_digest(token, request.headers.get("x-csrf-token", "")):
+        raise HTTPException(403, "Invalid CSRF token")
+    if request.headers.get("content-type", "").split(";")[0].lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length", "0") or "0") > 2048:
+        raise HTTPException(413, "Request too large")
+    if name not in {p.get("name") for p in read_config().get("proxies", [])}:
+        raise HTTPException(404, "Tunnel not found")
+    try:
+        data = await request.json()
+        if type(data) is not dict or set(data) != {"description", "tags", "maintenance_until"}:
+            raise ValueError("Unexpected fields")
+        result = ui_store.update(name, data["description"], data["tags"],
+                                 data["maintenance_until"], user["sub"])
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except (OSError, sqlite3.Error, RuntimeError):
+        raise HTTPException(503, "UI metadata storage unavailable") from None
+    audit("tunnel_metadata", "success", subject=user["sub"])
+    return result
+
+
 @app.get("/api/tunnels/form-context")
 async def tunnel_form_context(request: Request, name: str = "", user=Depends(current_user)):
     """Issue operation-scoped CSRF tokens and redacted tunnel form data."""
@@ -577,8 +617,10 @@ async def tunnel_form_context(request: Request, name: str = "", user=Depends(cur
         raise HTTPException(403, "Tunnel management role required")
     create_token = secrets.token_urlsafe(32)
     request.session["tunnel_preview_csrf"] = create_token
+    request.session["tunnel_meta_csrf"] = secrets.token_urlsafe(32)
     response = {
         "create_csrf": create_token,
+        "meta_csrf": request.session["tunnel_meta_csrf"],
         "manage_csrf": None,
         "create_enabled": "frp-admin" in user["roles"] and TUNNEL_ENABLED.is_file(),
         "manage_enabled": False,
@@ -594,6 +636,10 @@ async def tunnel_form_context(request: Request, name: str = "", user=Depends(cur
         request.session["tunnel_manage_csrf"] = token
         response["manage_csrf"] = token
         response["manage_enabled"] = (TUNNEL_ENABLED.is_file() and TUNNEL_MANAGE_ENABLED.is_file())
+        try:
+            response["metadata"] = ui_store.read(name)
+        except (OSError, sqlite3.Error, RuntimeError):
+            response["metadata"] = None
         response["tunnel"] = {
             "name": proxy["name"], "protocol": proxy["type"],
             "local_ip": proxy.get("localIP"),
