@@ -31,6 +31,8 @@ Never use the existing `udp-8050` proxy as a destructive test target.
 
 ## Safeguards and dependency installation
 
+The two staged helper installers are `scripts/install-control-center-v2-lxc.sh` (root on LXC) and `scripts/install-control-center-v2-ovh.sh` (root on VPS). Review each script before use. Neither restarts FRPC or FRPS, and neither enables new monitoring timers. Run only from a complete, explicitly checked-out copy of the reviewed feature branch.
+
 Do not enable `tunnel-writes-enabled`, `tunnel-manage-enabled`, or
 `tunnel-restore-enabled` solely to test this UI.
 New UI endpoints use existing Keycloak roles and origin/CSRF checks. They do
@@ -86,7 +88,7 @@ python3 scripts/backup-config.py --verify /var/backups/frp-manager/<archive>.tgz
 ```
 Archival files are 0600 and contain secrets; never serve them via HTTP.
 Set up and verify separate off-host transfer and a restore rehearsal.
-No automatic restore is enabled.
+No automatic restore is enabled. The `--scope frps` option runs on the OVH server itself and archives root-only FRPS settings; archives must remain off the public web path.
 
 On **OVH FRPS**, only after review, install the exporter and scope the sudo
 privilege to the one script:
