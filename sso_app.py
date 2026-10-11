@@ -1112,6 +1112,14 @@ async def health_overview(user=Depends(current_user)):
     data = get_tunnels()
     history = read_health_events(1)
     upstream = next((s["state"] for s in history["states"] if s["subject"]=="frps_connection"),"unknown")
+    # A stopped collector must not leave a permanent false green connection.
+    try:
+        from datetime import datetime, timezone
+        sampled=datetime.fromisoformat(history.get("sampled_at") or "")
+        if (datetime.now(timezone.utc)-sampled).total_seconds()>120:
+            upstream="unknown"
+    except (ValueError,TypeError):
+        upstream="unknown"
     return {"timestamp":data["timestamp"],"client_service":data["client_service"],
             "monitoring":data["monitoring"],"frps_connection":upstream,
             "total":data["total"],"active":data["active"],
