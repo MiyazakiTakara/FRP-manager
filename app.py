@@ -169,6 +169,23 @@ def get_ovh():
     return data
 
 
+def get_frps_security():
+    """Read sanitized OVH FRPS hardening checks using pinned SSH."""
+    output=command(
+        "ssh","-i",SSH_KEY,"-o","IdentitiesOnly=yes",
+        "-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
+        "-o","UserKnownHostsFile="+os.getenv("FRPS_SSH_KNOWN_HOSTS",
+              "/etc/frp-manager/ssh/known_hosts"),
+        "-o","ConnectTimeout=5",f"{OVH_USER}@{OVH_HOST}",
+        "sudo -n /usr/local/sbin/frp-manager-security-check",timeout=12)
+    if len(output)>20000:
+        raise ValueError("Oversized OVH security report")
+    data=json.loads(output)
+    if not isinstance(data,dict) or not isinstance(data.get("checks"),list):
+        raise ValueError("Invalid OVH security report")
+    return data
+
+
 def get_frps_metrics():
     """Limited read-only server metrics via fixed audited SSH command."""
     if not OVH_HOST:
