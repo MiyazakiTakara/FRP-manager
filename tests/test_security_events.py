@@ -24,6 +24,12 @@ class SecurityEventsTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertEqual(module.classify(source)[0],expected)
 
+    def test_actual_proxy_name(self):
+        message="new proxy [udp-8050] type [udp] success"
+        classified=module.classify(message)
+        self.assertEqual(classified[2].get("proxy"),"udp-8050")
+        self.assertNotEqual(classified[2].get("proxy"),"udp")
+
     def test_duplicates_are_aggregated(self):
         a=line("non-TLS connection received on a TlsOnly server",1760000000000000)
         result=module.read_events([a,a])
