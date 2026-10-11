@@ -54,8 +54,11 @@ Copy only the reviewed root helper scripts to these destinations if needed:
 ```sh
 install -o root -g root -m 0755 scripts/alert-worker.py /usr/local/sbin/frp-manager-alert-worker
 install -o root -g root -m 0755 scripts/backup-config.py /usr/local/sbin/frp-manager-backup-config
+install -o root -g root -m 0755 scripts/auth-alert-worker.py /usr/local/sbin/frp-manager-auth-alert
 install -o root -g root -m 0644 deploy/frp-manager-alert.service /etc/systemd/system/
 install -o root -g root -m 0644 deploy/frp-manager-alert.timer /etc/systemd/system/
+install -o root -g root -m 0644 deploy/frp-manager-auth-alert.service /etc/systemd/system/
+install -o root -g root -m 0644 deploy/frp-manager-auth-alert.timer /etc/systemd/system/
 install -o root -g root -m 0644 deploy/frp-manager-backup.service /etc/systemd/system/
 install -o root -g root -m 0644 deploy/frp-manager-backup.timer /etc/systemd/system/
 install -d -o root -g root -m 0700 /var/backups/frp-manager
@@ -66,8 +69,13 @@ The `/etc/frp-manager/alerts.env` file is optional and must be root:root 0600:
 ```sh
 # An HTTPS Discord-compatible webhook. This is a secret.
 FRP_ALERT_WEBHOOK_URL=https://example.invalid/replaced-by-private-webhook
+# Optional: enable burst detection of 3+ FRPS token failures within 15 minutes.
+FRP_ALERT_OVH_HOST=57.131.164.152
+# Key and pinned known-hosts files; do not disable strict SSH checking.
+FRP_ALERT_SSH_KEY=/etc/frp-manager/id_ed25519.svc
+FRP_ALERT_KNOWN_HOSTS=/etc/frp-manager/ssh/known_hosts
 ```
-The alert worker is deliberately a no-op without this variable. Test failure
+The alert worker is deliberately a no-op without this variable. The separate authentication-alert worker is a no-op until FRP_ALERT_OVH_HOST is provided and then checks the existing read-only security exporter on OVH every five minutes. It emits a deduplicated alert for 3 or more failed authentications in 15 minutes with a 30-minute cooldown. The initial scan establishes a baseline without reporting old incidents. Test failure
 and recovery using a synthetic snapshot in an isolated environment before
 enabling the timer; do not bring down the production tunnel for testing.
 
@@ -123,6 +131,7 @@ truthfully shows unavailable. On OVH run the same backup utility with
 - FRPS metrics require an enabled local dashboard and separately installed
   restricted SSH helper on the VPS. No synthetic transfer metrics.
 - Alert webhook and off-host backup destination require operator configuration.
+- The rejected-login burst alert is optional and requires FRPS security exporter deployment plus a pinned SSH host key.
 - Actual production deployment and disaster recovery verification require
   privileges/access not granted by the GitHub connector.
 
