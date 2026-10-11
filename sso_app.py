@@ -311,7 +311,7 @@ async def me(user=Depends(current_user)):
 @app.get("/api/tunnels")
 async def tunnels(user=Depends(current_user)):
     try:
-        return get_tunnels()
+        return await asyncio.to_thread(get_tunnels)
     except Exception:
         raise HTTPException(503, "Unable to read tunnels")
 
@@ -319,7 +319,7 @@ async def tunnels(user=Depends(current_user)):
 @app.get("/api/ovh")
 async def ovh(user=Depends(current_user)):
     try:
-        return get_ovh()
+        return await asyncio.to_thread(get_ovh)
     except Exception:
         raise HTTPException(503, "Unable to read remote server status")
 
@@ -327,7 +327,7 @@ async def ovh(user=Depends(current_user)):
 @app.get("/api/integrations/homepage")
 async def homepage(user=Depends(current_user)):
     try:
-        result = get_tunnels()
+        result = await asyncio.to_thread(get_tunnels)
     except Exception:
         raise HTTPException(503, "Monitoring unavailable")
 
@@ -1372,7 +1372,7 @@ async def diagnostics(user=Depends(current_user)):
 
 @app.get("/api/health/overview")
 async def health_overview(user=Depends(current_user)):
-    data = get_tunnels()
+    data = await asyncio.to_thread(get_tunnels)
     history = read_health_events(1)
     upstream = next((s["state"] for s in history["states"] if s["subject"]=="frps_connection"),"unknown")
     # A stopped collector must not leave a permanent false green connection.
@@ -1391,7 +1391,7 @@ async def health_overview(user=Depends(current_user)):
 
 @app.get("/api/health/tunnels")
 async def health_tunnels(user=Depends(current_user)):
-    data=get_tunnels()
+    data=await asyncio.to_thread(get_tunnels)
     return {"timestamp":data["timestamp"],"monitoring":data["monitoring"],
             "tunnels":[{**t,"target_health":"not_checked"} for t in data["tunnels"]]}
 
