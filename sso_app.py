@@ -22,7 +22,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
-from app import get_tunnels, get_ovh, read_config, get_security_events
+from app import get_tunnels, get_ovh, read_config, get_security_events, get_frps_metrics, get_frps_security
+try:
+    import ui_store
+except ImportError:
+    ui_store = None  # Legacy source updater has not installed optional UI metadata yet.
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
 CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
@@ -310,7 +314,7 @@ async def me(user=Depends(current_user)):
 @app.get("/api/tunnels")
 async def tunnels(user=Depends(current_user)):
     try:
-        return get_tunnels()
+        return await asyncio.to_thread(get_tunnels)
     except Exception:
         raise HTTPException(503, "Unable to read tunnels")
 
@@ -318,7 +322,7 @@ async def tunnels(user=Depends(current_user)):
 @app.get("/api/ovh")
 async def ovh(user=Depends(current_user)):
     try:
-        return get_ovh()
+        return await asyncio.to_thread(get_ovh)
     except Exception:
         raise HTTPException(503, "Unable to read remote server status")
 
@@ -326,7 +330,7 @@ async def ovh(user=Depends(current_user)):
 @app.get("/api/integrations/homepage")
 async def homepage(user=Depends(current_user)):
     try:
-        result = get_tunnels()
+        result = await asyncio.to_thread(get_tunnels)
     except Exception:
         raise HTTPException(503, "Monitoring unavailable")
 
@@ -372,11 +376,13 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 .healthline{list-style:none;margin:0 0 20px;padding:0;display:grid;gap:8px}
 .healthline li{display:flex;align-items:center;justify-content:space-between;gap:16px;border-left:3px solid var(--border);background:#1e2734;padding:10px 14px;border-radius:4px}
 .healthline li.ok{border-color:#83d4ab}.healthline li.fail{border-color:#f29b9b}.healthline li.unknown{border-color:#f7c77a}
-.severity-high{color:#ffa8a8;font-weight:750}.event-link{background:none;border:0;color:var(--accent);cursor:pointer;text-decoration:underline;font:inherit;padding:0}.event-link:hover{color:#fff}#incident{position:fixed;margin:auto;width:min(520px,calc(100vw - 32px));max-height:min(75vh,740px);overflow-y:auto;background:#161c26;color:#eef2f8;border:1px solid #42516a;border-radius:14px;padding:24px;box-shadow:0 24px 80px #0009}#incident::backdrop,#tunnel-modal::backdrop{background:#03070dc9}
-#tunnel-modal{position:fixed;margin:auto;width:min(770px,calc(100vw - 24px));height:min(88vh,900px);max-height:88vh;background:#161c26;border:1px solid #42516a;border-radius:14px;padding:14px;box-shadow:0 24px 80px #0009;color:#eef2f8}
-#tunnel-frame{border:0;background:#0d1117;width:100%;height:calc(100% - 48px);border-radius:8px}
+.severity-high{color:#ffa8a8;font-weight:750}.traffic-chart{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));align-items:end;gap:8px;padding:14px 0}.traffic-day{display:flex;flex-direction:column;align-items:center;gap:6px}.traffic-bars{height:130px;display:flex;align-items:end;gap:4px;width:100%;justify-content:center}.traffic-bars span{width:min(35%,20px);min-height:2px;border-radius:3px 3px 0 0}.traffic-in{background:#82b4ef}.traffic-out{background:#83d4ab}.event-link{background:none;border:0;color:var(--accent);cursor:pointer;text-decoration:underline;font:inherit;padding:0}.event-link:hover{color:#fff}#incident{position:fixed;margin:auto;width:min(520px,calc(100vw - 32px));max-height:min(75vh,740px);overflow-y:auto;background:#161c26;color:#eef2f8;border:1px solid #42516a;border-radius:14px;padding:24px;box-shadow:0 24px 80px #0009}#incident::backdrop,#tunnel-modal::backdrop{background:#03070dc9}
+#tunnel-modal{position:fixed;margin:auto;width:min(770px,calc(100vw - 24px));height:auto;max-height:88vh;overflow-y:auto;background:#161c26;border:1px solid #42516a;border-radius:14px;padding:14px;box-shadow:0 24px 80px #0009;color:#eef2f8}
+.form-cols{display:grid;grid-template-columns:2fr 1fr;gap:12px}#tunnel-modal form label,#tunnel-confirm-line label{display:block;margin:12px 0;color:#b9c7d8;font-size:13px}#tunnel-modal form input,#tunnel-modal form select,#tunnel-modal textarea,#tunnel-metadata input,#tunnel-confirm-name{width:100%;margin-top:6px}#tunnel-metadata label{display:block;margin:10px 0;font-size:13px}#tunnel-modal .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin:18px 0}.danger{color:#ffb6bd;background:#532b36}.review-list>div{padding:10px 0;border-bottom:1px solid #30394a}.review-list .changed{color:#f7c77a}.review-list .current{color:#a4afc0}.review-list strong{display:block;margin-bottom:4px}@media(max-width:600px){.form-cols{grid-template-columns:1fr}}
 #tunnel-modal .flex-between{margin-bottom:10px}
-#tunnel-modal::backdrop{background:#03070dd9}body:has(dialog[open]){overflow:hidden}.pager-disabled{opacity:.4}.severity-warning{color:#f7c77a}.value[data-state="connected"],.value[data-state="available"]{color:#83d4ab}.value[data-state="unknown"],.value[data-state="unavailable"]{color:#f7c77a}
+#tunnel-modal::backdrop{background:#03070dd9}
+#discard-dialog{background:#161c26;color:#eef2f8;border:1px solid #42516a;border-radius:12px;padding:22px;width:min(420px,calc(100vw - 28px))}
+#discard-dialog::backdrop{background:#03070de0}#discard-dialog .modal-actions{display:flex;justify-content:flex-end;gap:10px}body:has(dialog[open]){overflow:hidden}.pager-disabled{opacity:.4}.severity-warning{color:#f7c77a}.value[data-state="connected"],.value[data-state="available"]{color:#83d4ab}.value[data-state="unknown"],.value[data-state="unavailable"]{color:#f7c77a}
 @media(max-width:1080px){.dashboard-lower{grid-template-columns:1fr}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(max-width:780px){.shell{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--border);display:flex;gap:4px;overflow-x:auto;padding:8px}.nav{width:auto;flex:none}main{padding:20px 14px}.grid{grid-template-columns:1fr}.heading{align-items:start}}
 </style></head><body>
@@ -387,7 +393,7 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 <button class="nav" aria-selected="false" data-tab="tunnels">Tunnels</button>
 <button class="nav" aria-selected="false" data-tab="health">Health</button>
 <button class="nav" aria-selected="false" data-tab="history">History</button>
-<button class="nav" aria-selected="false" data-tab="security">Security Events</button>
+<button class="nav" aria-selected="false" data-tab="security">Security Events</button><button class="nav" aria-selected="false" data-tab="diagnostics">Diagnostics</button><button class="nav" aria-selected="false" data-tab="topology">Topology</button><button class="nav" aria-selected="false" data-tab="alerts">Alerts</button><button class="nav" aria-selected="false" data-tab="backup">Backup & Recovery</button><button class="nav" aria-selected="false" data-tab="traffic">Traffic</button>
 </aside><main>
 <div class="heading"><div><h1 id="heading">Overview</h1><div class="sub" id="stamp">Loading infrastructure status…</div></div><div class="toolbar" style="margin:0"><span id="live" class="live">Live updates</span><button class="btn" id="refresh">Refresh</button></div></div>
 <div role="status" id="error" class="bad" aria-live="polite"></div>
@@ -401,14 +407,32 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 </div></section>
 <section class="section" id="tab-tunnels"><div class="toolbar"><input id="tunnel-search" type="search" placeholder="Filter tunnels" aria-label="Filter tunnels"><span id="manage-links"></span></div><div class="card scroll"><table><thead><tr><th>Name</th><th>Protocol</th><th>Public endpoint</th><th>Local target</th><th>Proxy status</th><th>Action</th></tr></thead><tbody id="tunnel-rows"></tbody></table></div></section>
 <section class="section" id="tab-health"><div class="card"><h2>Observed current states</h2><p class="note">Time below is measured only since the first recorded state transition; it is not guaranteed service uptime.</p><div class="grid" id="health-current" style="margin-bottom:20px"></div><h2>Availability timeline</h2><ol id="health-timeline" class="healthline"></ol><h2>State changes</h2><p class="note">Samples every 30 seconds; only transitions are recorded. A running UDP proxy does not prove the game server responds.</p><div class="scroll"><table><thead><tr><th>Time (UTC)</th><th>Component</th><th>Previous</th><th>Current</th></tr></thead><tbody id="health-rows"></tbody></table></div></div></section>
-<section class="section" id="tab-history"><div class="card"><div class="flex-between"><h2>Configuration history</h2><a href="/history">Full audit and changes →</a></div><div id="version-list">Loading history…</div><p class="note">Restore remains disabled pending tests. Sensitive configuration values are not displayed.</p></div></section>
-<section class="section" id="tab-security"><div class="toolbar"><select id="time-filter" aria-label="Time range"><option value="24">Last 24 hours</option><option value="12">Last 12 hours</option><option value="6">Last 6 hours</option><option value="1">Last hour</option></select><select id="severity" aria-label="Filter by severity"><option value="">All severities</option><option value="high">High</option><option value="warning">Warning</option><option value="info">Info</option></select><input type="search" id="security-search" placeholder="Filter events or address" aria-label="Search security events"><span class="note">FRPS journal · maximum 24h · aggregated</span><select id="page-size" aria-label="Rows per page"><option value="20">20 rows</option><option value="50">50 rows</option><option value="100">100 rows</option></select></div><div class="card scroll"><table><thead><tr><th>Time (UTC)</th><th>Severity</th><th>Category</th><th>Details</th><th>Count</th></tr></thead><tbody id="security-rows"></tbody></table></div><div class="toolbar" style="justify-content:flex-end;margin-top:12px"><span id="security-total" class="note"></span><button type="button" id="prev-page" class="btn">Previous</button><span id="security-page" class="note"></span><button type="button" id="next-page" class="btn">Next</button></div></section><dialog id="tunnel-modal" aria-labelledby="tunnel-modal-title"><div class="flex-between"><h2 id="tunnel-modal-title">Manage tunnel</h2><button type="button" class="btn" id="close-tunnel-modal">Close</button></div><iframe id="tunnel-frame" title="Tunnel management form" loading="lazy" referrerpolicy="same-origin"></iframe></dialog>
+<section class="section" id="tab-history"><div class="card"><div class="flex-between"><h2>Configuration history</h2><a href="/history">Full audit and changes →</a></div><div id="version-list">Loading history…</div><h2>Compare versions</h2><div class="toolbar"><select id="diff-before" aria-label="Earlier version"></select><select id="diff-after" aria-label="Later version"></select><button type="button" class="btn" id="show-diff">Compare</button></div><div id="version-diff" class="review-list"></div><p class="note">Restore remains disabled pending tests. Sensitive configuration values are not displayed.</p></div></section>
+<section class="section" id="tab-security"><div class="toolbar"><select id="time-filter" aria-label="Time range"><option value="24">Last 24 hours</option><option value="12">Last 12 hours</option><option value="6">Last 6 hours</option><option value="1">Last hour</option></select><select id="severity" aria-label="Filter by severity"><option value="">All severities</option><option value="high">High</option><option value="warning">Warning</option><option value="info">Info</option></select><input type="search" id="security-search" placeholder="Filter events or address" aria-label="Search security events"><span class="note">FRPS journal · maximum 24h · aggregated</span><select id="page-size" aria-label="Rows per page"><option value="20">20 rows</option><option value="50">50 rows</option><option value="100">100 rows</option></select></div><div class="card scroll"><table><thead><tr><th>Time (UTC)</th><th>Severity</th><th>Category</th><th>Details</th><th>Count</th></tr></thead><tbody id="security-rows"></tbody></table></div><div class="toolbar" style="justify-content:flex-end;margin-top:12px"><span id="security-total" class="note"></span><button type="button" id="prev-page" class="btn">Previous</button><span id="security-page" class="note"></span><button type="button" id="next-page" class="btn">Next</button></div></section><dialog id="tunnel-modal" aria-labelledby="tunnel-modal-title"><div class="flex-between"><h2 id="tunnel-modal-title">Tunnel</h2><button type="button" class="btn" id="close-tunnel-modal">Close</button></div>
+<p id="tunnel-description" class="note">Validate changes before applying them to FRPC.</p>
+<form id="tunnel-form">
+<label>Name<input id="form-name" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" required></label>
+<label>Protocol<select id="form-protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+<div class="form-cols"><label>Local IPv4<input id="form-ip" required placeholder="192.168.1.37"></label><label>Local port<input id="form-localport" type="number" min="1" max="65535" required></label></div>
+<label>Public port<input id="form-publicport" type="number" min="1" max="65535" required></label>
+<div class="modal-actions"><button type="button" class="btn danger" id="form-delete" hidden>Delete tunnel</button><button type="submit" class="btn" id="form-preview">Validate &amp; preview</button></div>
+</form>
+<div id="tunnel-metadata" class="card" hidden><h2>Label &amp; maintenance</h2><p class="note">UI-only metadata. Does not edit FRPC settings or disable your tunnel.</p><label>Description<textarea id="meta-description" maxlength="240" rows="2" placeholder="What runs behind this tunnel?"></textarea></label><label>Tags (comma-separated)<input id="meta-tags" maxlength="200" placeholder="Games, Production"></label><label>Maintenance ends (optional)<input id="meta-until" type="datetime-local"></label><div class="modal-actions"><button type="button" class="btn" id="save-meta">Save labels</button></div></div>
+<div id="tunnel-preview" hidden><h2>Review changes</h2><div id="tunnel-diff" class="review-list"></div><div id="tunnel-confirm-line" hidden><label>Type tunnel name to confirm deletion<input id="tunnel-confirm-name" autocomplete="off"></label></div><div class="modal-actions"><button class="btn" type="button" id="preview-back">Back</button><button class="btn" type="button" id="form-apply">Apply operation</button></div></div>
+<p id="tunnel-feedback" role="status" aria-live="polite"></p>
+</dialog>
+<dialog id="discard-dialog" aria-labelledby="discard-title"><h2 id="discard-title">Discard unsaved changes?</h2><p class="note">This will close the tunnel form. No FRPC configuration changes have been applied.</p><div class="modal-actions"><button type="button" class="btn" id="keep-editing">Keep editing</button><button type="button" class="btn danger" id="discard-draft">Discard draft</button></div></dialog>
 <dialog id="incident" aria-labelledby="incident-title"><div class="flex-between"><h2 id="incident-title">Event details</h2><button type="button" class="btn" id="close-incident">Close</button></div><div id="incident-body"></div><p class="note">These are sanitized FRPS events, not evidence of individual user activity inside a tunnel.</p></dialog>
+<section class="section" id="tab-diagnostics"><div class="card"><h2>Security and diagnostics</h2><p class="note">Read-only checks. Remote OVH settings are not inspected.</p><div id="diag-list"></div></div></section>
+<section class="section" id="tab-traffic"><div class="card"><h2>FRPS traffic and connections</h2><p class="note">Counters supplied by the authenticated FRPS dashboard API when explicitly enabled on OVH. No usage is estimated.</p><div id="traffic-list">Loading…</div></div></section>
+<section class="section" id="tab-backup"><div class="card"><h2>Configuration snapshots &amp; recovery readiness</h2><p class="note">Audited snapshots are not independent disaster-recovery backups. Exported manifest contains only previously redacted change metadata, not credentials or a restorable FRPC configuration.</p><div id="backup-status">Loading…</div><div class="toolbar"><button type="button" class="btn" id="download-manifest">Export sanitized history manifest</button></div><p class="note">Restoring configurations requires separate tested root-owned backup procedures. FRP Manager does not automatically turn on restore.</p></div></section>
+<section class="section" id="tab-alerts"><div class="card"><h2>Notification worker</h2><p class="note">Opt-in outbound webhook alerting. Configure the worker on the LXC via a root-only environment file; no webhook secret is ever shown here.</p><div id="alerts-status">Loading…</div></div></section>
+<section class="section" id="tab-topology"><div class="card"><h2>Connection topology</h2><p class="note">Logical route. A registered proxy does not prove an application is responding.</p><div id="topology-list"></div></div></section>
 </main></div>
 <script>
 "use strict";
-const $=id=>document.getElementById(id);let tab="overview",tunnels=[],security=[],securityPage=0,allowManage=__CAN_MANAGE__,allowCreate=__CAN_CREATE__,loading=false;
-const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events"};
+const $=id=>document.getElementById(id);let tab="overview",tunnels=[],tunnelMeta={},security=[],securityPage=0,allowManage=__CAN_MANAGE__,allowCreate=__CAN_CREATE__,loading=false,loadQueued=false;
+const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events",diagnostics:"Diagnostics",topology:"Topology",alerts:"Alerts",backup:"Backup & Recovery",traffic:"Traffic"};
 function cell(row,value){const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);return td}
 function stateClass(v){const x=String(v||"unknown").toLowerCase();return ["running","available","connected","success"].includes(x)?"ok":["error","failed","stopped","closed","disconnected","offline"].includes(x)?"fail":"unknown"}
 function stateCell(row,v){const td=document.createElement("td"),span=document.createElement("span");span.className="state "+stateClass(v);span.textContent=status(v);td.append(span);row.append(td)}
@@ -416,28 +440,58 @@ function status(value){return value===null||value===undefined?"Unknown":String(v
 function fmt(date){if(!date)return"—";const d=new Date(date);return Number.isNaN(d.getTime())?"—":d.toISOString().replace("T"," ").slice(0,19)}
 async function api(url){const c=new AbortController();const timer=setTimeout(()=>c.abort(),30000);try{const res=await fetch(url,{signal:c.signal,cache:"no-store"});if(res.status===401){location.assign("/login");throw Error("Authentication required")}if(!res.ok)throw Error("HTTP "+res.status);return await res.json()}finally{clearTimeout(timer)}}
 function empty(body,msg){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent=msg;tr.append(td);body.append(tr)}
-function openTunnelModal(path,label){const frame=$("tunnel-frame"),modal=$("tunnel-modal");$("tunnel-modal-title").textContent=label;frame.src=path;modal.showModal();$("close-tunnel-modal").focus()}
-function closeTunnelModal(){$("tunnel-modal").close()}
-function renderOverviewTunnels(){const body=$("overview-tunnels");body.replaceChildren();for(const t of tunnels.slice(0,10)){const tr=document.createElement("tr");cell(tr,t.name);cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);body.append(tr)}if(!tunnels.length)empty(body,"No configured tunnels")}
+let historyVersions=[];
+function compareVersions(){const before=Number($("diff-before").value),after=Number($("diff-after").value),container=$("version-diff");container.replaceChildren();if(before===after){container.textContent="Select two different versions";return}const snapshots=new Map(),state={};for(const ver of historyVersions.slice().sort((a,b)=>a.id-b.id)){for(const patch of ver.changes||[]){if(patch.after==null)delete state[patch.name];else state[patch.name]=patch.after}snapshots.set(ver.id,JSON.parse(JSON.stringify(state)))}const a=snapshots.get(before)||{},b=snapshots.get(after)||{};for(const name of new Set([...Object.keys(a),...Object.keys(b)])){const left=JSON.stringify(a[name]??null),right=JSON.stringify(b[name]??null);if(left===right)continue;const div=document.createElement("div"),h=document.createElement("strong"),x=document.createElement("pre");h.textContent=name;x.textContent="v"+before+": "+left+String.fromCharCode(10)+"v"+after+": "+right;div.append(h,x);container.append(div)}if(!container.children.length)container.textContent="No differences found in available audited change metadata"}
+$("show-diff").addEventListener("click",compareVersions);
+$("download-manifest").addEventListener("click",async()=>{try{const data=await api("/api/history");const manifest={type:"redacted-history-manifest",restorable:false,generated_at:new Date().toISOString(),versions:data.versions||[],operations:data.operations||[]};const blob=new Blob([JSON.stringify(manifest,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="frp-manager-audit-manifest.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$("error").textContent="Unable to download sanitized manifest: "+e.message}});
+let tunnelMode="add",originalTunnel=null,tunnelCsrf="",tunnelPreview=null,tunnelAction="",tunnelBusy=false;
+let tunnelBaseline="",tunnelOperationCompleted=false;
+let tunnelMetaCsrf="";
+const getForm=()=>({name:$("form-name").value.trim(),protocol:$("form-protocol").value,local_ip:$("form-ip").value.trim(),local_port:Number($("form-localport").value),public_port:Number($("form-publicport").value)});
+function setTunnelFeedback(text,isError=false){$("tunnel-feedback").textContent=text;$("tunnel-feedback").className=isError?"bad":"note"}
+function addReview(title,before,after){const div=document.createElement("div"),label=document.createElement("strong"),span=document.createElement("span");label.textContent=title;span.textContent=before===undefined?String(after):String(before)+"  →  "+String(after);span.className=before!==undefined&&before!==after?"changed":"current";div.append(label,span);$("tunnel-diff").append(div)}
+function showTunnelReview(action,values){tunnelAction=action;tunnelPreview=values;$("tunnel-diff").replaceChildren();if(action==="delete"){for(const [k,v] of Object.entries(originalTunnel))addReview(k,undefined,v)}else{for(const [k,v] of Object.entries(values)){addReview(k,originalTunnel?originalTunnel[k]:undefined,v)}}$("tunnel-form").hidden=true;$("tunnel-preview").hidden=false;$("tunnel-confirm-line").hidden=action!=="delete";$("tunnel-confirm-name").value="";$("form-apply").disabled=action==="delete"||!tunnelCanWrite;$("form-apply").textContent=action==="delete"?"Confirm deletion":action==="edit"?"Apply changes":"Create tunnel";if(!tunnelCanWrite)setTunnelFeedback("Preview only: tunnel write operations are disabled on this host.");else setTunnelFeedback("Review carefully: applying changes may restart FRPC.")}
+let tunnelCanWrite=false;
+async function openTunnelModal(path,label){if($("tunnel-modal").open)return;tunnelMode=path.startsWith("/tunnels/new")?"add":"edit";const name=tunnelMode==="edit"?new URL(path,location.origin).searchParams.get("name"):"";$("tunnel-modal-title").textContent=label;$("tunnel-form").hidden=false;$("tunnel-preview").hidden=true;$("tunnel-form").reset();$("form-delete").hidden=true;tunnelOperationCompleted=false;tunnelPreview=null;setTunnelFeedback("Loading tunnel settings…");$("tunnel-modal").showModal();try{const ctx=await api("/api/tunnels/form-context"+(name?"?name="+encodeURIComponent(name):""));if(!$("tunnel-modal").open)return;originalTunnel=ctx.tunnel;tunnelCsrf=tunnelMode==="add"?ctx.create_csrf:ctx.manage_csrf;tunnelCanWrite=tunnelMode==="add"?ctx.create_enabled:ctx.manage_enabled;tunnelMetaCsrf=ctx.meta_csrf;$("tunnel-metadata").hidden=!originalTunnel;$("meta-description").value=ctx.metadata?.description||"";$("meta-tags").value=(ctx.metadata?.tags||[]).join(", ");$("meta-until").value=ctx.metadata?.maintenance_until?ctx.metadata.maintenance_until.slice(0,16):"";if(originalTunnel){$("form-name").value=originalTunnel.name;$("form-protocol").value=originalTunnel.protocol;$("form-ip").value=originalTunnel.local_ip;$("form-localport").value=originalTunnel.local_port;$("form-publicport").value=originalTunnel.public_port;$("form-name").readOnly=true;$("form-protocol").disabled=true;$("form-delete").hidden=false}else{$("form-name").readOnly=false;$("form-protocol").disabled=false}$("tunnel-description").textContent=tunnelMode==="add"?"Create a new TCP or UDP proxy. Preview does not change running tunnels.":"Review edits or deletion before applying; every operation is audited.";tunnelBaseline=tunnelDraft();setTunnelFeedback(tunnelCanWrite?"Ready to validate.":"Preview only: writing is currently disabled.")}catch(e){setTunnelFeedback("Could not load tunnel form: "+e.message,true);$("tunnel-form").hidden=true}}
+function tunnelDraft(){return JSON.stringify({tunnel:getForm(),description:$("meta-description").value,tags:$("meta-tags").value,until:$("meta-until").value})}
+function closeTunnelModal(){if(tunnelBusy)return;if(!tunnelOperationCompleted&&tunnelDraft()!==tunnelBaseline){$("discard-dialog").showModal();return}$("tunnel-modal").close()}
+$("keep-editing").addEventListener("click",()=>{$("discard-dialog").close();$("close-tunnel-modal").focus()});
+$("discard-draft").addEventListener("click",()=>{$("discard-dialog").close();$("tunnel-modal").close()});
+$("tunnel-modal").addEventListener("cancel",e=>{e.preventDefault();closeTunnelModal()});
+
+async function tunnelPost(url,payload){const r=await fetch(url,{method:"POST",credentials:"same-origin",cache:"no-store",headers:{"Content-Type":"application/json","X-CSRF-Token":tunnelCsrf},body:JSON.stringify(payload)});if(r.status===401){location.assign("/login");throw Error("Authentication required")}let response;try{response=await r.json()}catch{response={}}if(!r.ok)throw Error(response.detail||"HTTP "+r.status);return response}
+$("tunnel-form").addEventListener("submit",async e=>{e.preventDefault();if(tunnelBusy)return;tunnelBusy=true;$("form-preview").disabled=true;setTunnelFeedback("Validating…");const values=getForm();try{if(tunnelMode==="add"){const response=await tunnelPost("/api/tunnels/preview",values);tunnelCanWrite=response.create_enabled;showTunnelReview("create",values)}else{const response=await tunnelPost("/api/tunnels/manage-preview",{action:"edit",name:originalTunnel.name,tunnel:values});showTunnelReview("edit",response.after||values)}}catch(err){setTunnelFeedback(err.message,true)}finally{tunnelBusy=false;$("form-preview").disabled=false}});
+$("save-meta").addEventListener("click",async()=>{if(!originalTunnel||tunnelBusy)return;const desc=$("meta-description").value,tags=$("meta-tags").value.split(",").map(x=>x.trim()).filter(Boolean),until=$("meta-until").value;const payload={description:desc,tags,maintenance_until:until?new Date(until).toISOString():null};tunnelBusy=true;$("save-meta").disabled=true;setTunnelFeedback("Saving labels…");try{const r=await fetch("/api/tunnels/metadata/"+encodeURIComponent(originalTunnel.name),{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":tunnelMetaCsrf},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.detail||"HTTP "+r.status);tunnelBaseline=tunnelDraft();setTunnelFeedback("Labels and maintenance schedule saved. Tunnel traffic remains unchanged.");load()}catch(e){setTunnelFeedback(e.message,true)}finally{tunnelBusy=false;$("save-meta").disabled=false}});
+$("form-delete").addEventListener("click",async()=>{if(tunnelBusy||!originalTunnel)return;tunnelBusy=true;setTunnelFeedback("Checking deletion…");try{await tunnelPost("/api/tunnels/manage-preview",{action:"delete",name:originalTunnel.name});showTunnelReview("delete",originalTunnel)}catch(e){setTunnelFeedback(e.message,true)}finally{tunnelBusy=false}});
+$("tunnel-confirm-name").addEventListener("input",()=>{$("form-apply").disabled=!tunnelCanWrite||$("tunnel-confirm-name").value!==originalTunnel.name});
+$("preview-back").addEventListener("click",()=>{$("tunnel-preview").hidden=true;$("tunnel-form").hidden=false;setTunnelFeedback("Preview discarded. No changes applied.")});
+$("form-apply").addEventListener("click",async()=>{if(tunnelBusy||!tunnelCanWrite||!tunnelPreview)return;if(tunnelAction==="delete"&&$("tunnel-confirm-name").value!==originalTunnel.name)return;tunnelBusy=true;$("form-apply").disabled=true;setTunnelFeedback("Submitting operation…");try{const action=tunnelAction;const payload=action==="create"?tunnelPreview:action==="delete"?{action,name:originalTunnel.name}:{action,name:originalTunnel.name,tunnel:tunnelPreview};await tunnelPost(action==="create"?"/api/tunnels/create":"/api/tunnels/manage-apply",payload);setTunnelFeedback("Queued. Waiting for FRPC operation result…");let done=false;for(let i=0;i<45&&$("tunnel-modal").open;i++){await new Promise(resolve=>setTimeout(resolve,2000));const result=await api("/api/tunnels/create-status");if((result.state==="success"||result.state==="failed")&&result.name===payload.name&&(action==="create"||result.action===action)){done=true;if(result.state==="failed")throw Error(result.error||"Operation failed; check rollback status");tunnelOperationCompleted=true;setTunnelFeedback("Operation completed successfully.");load();break}}if(!done)setTunnelFeedback("Operation still processing. Review status before retrying.")}catch(err){setTunnelFeedback(err.message,true)}finally{tunnelBusy=false;$("form-apply").disabled=false}});
+function namedTunnel(row,t){const td=cell(row,t.name),meta=tunnelMeta[t.name]||{};if((meta.tags||[]).length){const tags=document.createElement("span");tags.className="note";tags.style.marginLeft="8px";tags.textContent=meta.tags.join(", ");td.append(tags)}if(meta.maintenance_until&&Date.parse(meta.maintenance_until)>Date.now()){const badge=document.createElement("span");badge.className="signal warning";badge.style.marginLeft="8px";badge.textContent="Maintenance";td.append(badge)}return td}
+function renderOverviewTunnels(){const body=$("overview-tunnels");body.replaceChildren();for(const t of tunnels.slice(0,10)){const tr=document.createElement("tr");namedTunnel(tr,t);cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);body.append(tr)}if(!tunnels.length)empty(body,"No configured tunnels")}
 function renderRecent(){const list=$("recent");list.replaceChildren();const important=security.filter(e=>e.severity==="high"||e.severity==="warning").slice(0,5);if(!important.length){const li=document.createElement("li");li.textContent="No recent warning or high severity events";list.append(li);return}for(const e of important){const li=document.createElement("li"),label=document.createElement("span"),stamp=document.createElement("span");label.textContent=e.category.replaceAll("_"," ");label.className="signal "+e.severity;stamp.textContent=fmt(e.timestamp)+" UTC";stamp.className="note";li.append(label,stamp);list.append(li)}}
-function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
+function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify({t,meta:tunnelMeta[t.name]||{}}).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");namedTunnel(tr,t);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const probe=document.createElement("button");probe.className="btn";probe.type="button";probe.textContent="Test target";probe.style.marginRight="10px";probe.addEventListener("click",async()=>{probe.disabled=true;probe.textContent="Checking…";try{const result=await api("/api/health/target-check?name="+encodeURIComponent(t.name));probe.textContent=result.result;probe.title=result.detail}catch(e){probe.textContent="Check failed";probe.title=e.message}finally{setTimeout(()=>{probe.disabled=false;probe.textContent="Test target"},6000)}});td.append(probe);const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
 let lastIncidentFocus=null;
 function showIncident(event){const area=$("incident-body");area.replaceChildren();const dl=document.createElement("dl");for(const [key,val] of Object.entries({timestamp:fmt(event.timestamp)+" UTC",severity:event.severity,category:event.category,count:event.count,...(event.details||{})})){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.className="muted";dt.textContent=key.replaceAll("_"," ");dd.textContent=String(val);dd.style.margin="0 0 10px";dl.append(dt,dd)}area.append(dl);lastIncidentFocus=document.activeElement;$("incident").showModal();$("close-incident").focus()}
 function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value,range=Number($("time-filter").value);const cutoff=Date.now()-range*3600000;const filtered=security.filter(e=>(!sev||e.severity===sev)&&(!q||JSON.stringify(e).toLowerCase().includes(q))&&new Date(e.timestamp).getTime()>=cutoff);const size=Number($("page-size").value),pages=Math.max(1,Math.ceil(filtered.length/size));securityPage=Math.min(securityPage,pages-1);const offset=securityPage*size;
 for(const e of filtered.slice(offset,offset+size)){const tr=document.createElement("tr");cell(tr,fmt(e.timestamp));const level=cell(tr,e.severity);level.className="severity-"+e.severity;const td=document.createElement("td"),btn=document.createElement("button");btn.type="button";btn.className="event-link";btn.textContent=e.category.replaceAll("_"," ");btn.addEventListener("click",()=>showIncident(e));td.append(btn);tr.append(td);cell(tr,Object.entries(e.details||{}).map(([k,v])=>k+": "+v).join(", ")||"—");cell(tr,e.count);body.append(tr)}
 if(!filtered.length)empty(body,"No matching security events");$("security-total").textContent=filtered.length+" groups";$("security-page").textContent=securityPage+1+" / "+pages;$("prev-page").disabled=securityPage===0;$("next-page").disabled=securityPage>=pages-1}
 
-async function load(){if(loading)return;loading=true;$("refresh").disabled=true;$("error").textContent="";try{
-if(tab==="overview"||tab==="tunnels"){const d=await api("/api/health/tunnels");tunnels=d.tunnels||[];renderTunnels();renderOverviewTunnels();$("active").textContent=tunnels.filter(t=>String(t.status).toLowerCase()==="running").length+" / "+tunnels.length;$("monitoring").textContent=d.monitoring||"Unknown"}
+async function load(){if(loading){loadQueued=true;return}loading=true;$("refresh").disabled=true;$("error").textContent="";try{
+if(tab==="overview"||tab==="tunnels"){const [d,m]=await Promise.all([api("/api/health/tunnels"),api("/api/tunnels/metadata")]);tunnels=d.tunnels||[];tunnelMeta=m.entries||{};renderTunnels();renderOverviewTunnels();$("active").textContent=tunnels.filter(t=>String(t.status).toLowerCase()==="running").length+" / "+tunnels.length;$("monitoring").textContent=d.monitoring||"Unknown"}
 if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").textContent=status(d.frps_connection);$("upstream").dataset.state=d.frps_connection;$("stamp").textContent="Last checked "+fmt(d.timestamp)+" UTC"}
 if(tab==="health"){const d=await api("/api/health/history?limit=100");const body=$("health-rows");body.replaceChildren();$("health-timeline").replaceChildren();const cards=$("health-current");cards.replaceChildren();const sampled=new Date(d.sampled_at||0).getTime();const fresh=d.available&&Number.isFinite(sampled)&&Date.now()-sampled<120000;for(const state of d.states||[]){const box=document.createElement("div"),name=document.createElement("div"),value=document.createElement("div"),duration=document.createElement("div");box.className="card";name.className="note";value.className="state "+(fresh?stateClass(state.state):"unknown");duration.className="note";name.textContent=state.subject;value.textContent=fresh?state.state:"Unknown (stale sample)";const since=new Date(state.changed_at).getTime();duration.textContent=Number.isFinite(since)&&fresh?"Observed for "+Math.max(0,Math.floor((Date.now()-since)/60000))+" min":"Duration unknown";box.append(name,value,duration);cards.append(box)}for(const e of d.events||[]){const tr=document.createElement("tr");cell(tr,fmt(e.recorded_at));cell(tr,e.subject);cell(tr,e.previous);stateCell(tr,e.current);body.append(tr);if($("health-timeline").children.length<12){const li=document.createElement("li");li.className=stateClass(e.current);const label=document.createElement("span");label.textContent=fmt(e.recorded_at)+" UTC · "+e.subject;const val=document.createElement("span");val.textContent=status(e.current);li.append(label,val);$("health-timeline").append(li)}}if(!body.children.length)empty(body,"No health transitions recorded")}
 if(tab==="security"){await pollSecurity();renderSecurity();}
-if(tab==="history"){const d=await api("/api/history");const list=$("version-list");list.replaceChildren();for(const v of (d.versions||[]).slice().reverse().slice(0,15)){const row=document.createElement("div");row.style.padding="11px 0";row.style.borderBottom="1px solid var(--border)";const heading=document.createElement("strong"),meta=document.createElement("div");heading.textContent="v"+v.id+" · "+v.summary;meta.className="note";meta.textContent=fmt(v.recorded_at)+" UTC · "+v.actor;row.append(heading,meta);list.append(row)}if(!list.children.length)list.textContent="No versions recorded";$("stamp").textContent="Configuration history · read-only"}
-}catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false}}
+if(tab==="traffic"){const data=await api("/api/metrics/traffic"),root=$("traffic-list");root.replaceChildren();if(!data.available){root.textContent=data.reason||"Remote metrics unavailable"}else{const table=document.createElement("table");const head=document.createElement("tr");for(const col of ["Tunnel","Connections","Today IN","Today OUT"]){const cell=document.createElement("th");cell.textContent=col;head.append(cell)}table.append(head);for(const p of data.proxies){const tr=document.createElement("tr");cell(tr,p.name);cell(tr,p.counters?.curConns??"Not reported");cell(tr,p.counters?.todayTrafficIn==null?"Not reported":(p.counters.todayTrafficIn/1024/1024).toFixed(2)+" MiB");cell(tr,p.counters?.todayTrafficOut==null?"Not reported":(p.counters.todayTrafficOut/1024/1024).toFixed(2)+" MiB");table.append(tr)}root.append(table);for(const p of data.proxies){const series=p.traffic7d;if(!series)continue;const details=document.createElement("details"),summary=document.createElement("summary");summary.textContent=p.name+" · 7-day traffic";details.append(summary);const chart=document.createElement("div");chart.className="traffic-chart";const all=[...series.in,...series.out],max=Math.max(1,...all);for(let index=0;index<7;index++){const day=document.createElement("div"),bars=document.createElement("div"),label=document.createElement("span");day.className="traffic-day";bars.className="traffic-bars";for(const [values,kind] of [[series.in,"in"],[series.out,"out"]]){const bar=document.createElement("span");bar.className="traffic-"+kind;bar.style.height=Math.max(2,100*values[index]/max)+"%";bar.title=kind.toUpperCase()+": "+(values[index]/1048576).toFixed(2)+" MiB";bars.append(bar)}label.className="note";label.textContent="D"+(index+1);day.append(bars,label);chart.append(day)}details.append(chart);root.append(details)}if(!data.proxies.length)root.textContent="No proxy counters reported"}}
+if(tab==="backup"){const [history,archive]=await Promise.all([api("/api/history"),api("/api/backups/status")]);$("backup-status").textContent=(history.versions||[]).length+" audited versions · "+(archive.available?"last verified local archive: "+fmt(archive.last_created_at)+" UTC ("+archive.files+" files)":"no verified local archive reported")+". Offsite backup and restore have NOT been verified."}
+if(tab==="alerts"){const d=await api("/api/alerts/status");$("alerts-status").textContent=d.configured?"Active · last check "+fmt(d.checked_at)+" UTC · "+d.monitored_subjects+" subjects":"Not configured or no successful check yet"}
+if(tab==="diagnostics"){const data=await api("/api/diagnostics"),root=$("diag-list");root.replaceChildren();for(const c of data.checks){const row=document.createElement("div"),label=document.createElement("strong"),detail=document.createElement("p");row.style.padding="12px 0";row.style.borderBottom="1px solid var(--border)";label.textContent=c.name+" · "+c.result.toUpperCase();label.className=c.result==="passed"?"good":c.result==="failed"?"bad":"warn";detail.textContent=c.detail;row.append(label,detail);root.append(row)}const remote=await api("/api/diagnostics/remote");const h=document.createElement("h2");h.textContent="Remote OVH checks";root.append(h);if(!remote.available){const p=document.createElement("p");p.textContent=remote.reason;root.append(p)}else{for(const c of remote.checks){const el=document.createElement("p");el.textContent=c.name+" — "+c.result+": "+c.detail;el.className=c.result==="passed"?"good":"warn";root.append(el)}}}
+if(tab==="topology"){const data=await api("/api/health/tunnels"),root=$("topology-list");root.replaceChildren();for(const t of data.tunnels||[]){const row=document.createElement("div");row.className="card";row.style.marginBottom="10px";const line=document.createElement("strong"),detail=document.createElement("div");line.textContent="Internet → OVH FRPS → FRPC → "+(t.local_ip||"local host");detail.className="note";detail.textContent=t.name+" · "+t.protocol+" · public :"+t.public_port+" → local :"+t.local_port+" · "+t.status;row.append(line,detail);root.append(row)}if(!root.children.length)root.textContent="No tunnels"}
+if(tab==="history"){const d=await api("/api/history");historyVersions=d.versions||[];for(const id of ["diff-before","diff-after"]){const select=$(id);select.replaceChildren();for(const v of historyVersions){const option=document.createElement("option");option.value=v.id;option.textContent="v"+v.id;select.append(option)}}if(historyVersions.length>1){$("diff-before").value=historyVersions[0].id;$("diff-after").value=historyVersions[historyVersions.length-1].id}const list=$("version-list");list.replaceChildren();for(const v of (d.versions||[]).slice().reverse().slice(0,15)){const row=document.createElement("div");row.style.padding="11px 0";row.style.borderBottom="1px solid var(--border)";const heading=document.createElement("strong"),meta=document.createElement("div");heading.textContent="v"+v.id+" · "+v.summary;meta.className="note";meta.textContent=fmt(v.recorded_at)+" UTC · "+v.actor;row.append(heading,meta);list.append(row)}if(!list.children.length)list.textContent="No versions recorded";$("stamp").textContent="Configuration history · read-only"}
+}catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false;if(loadQueued){loadQueued=false;queueMicrotask(()=>load())}}}
 function switchTab(next){tab=next;for(const b of document.querySelectorAll(".nav"))b.setAttribute("aria-selected",String(b.dataset.tab===next));for(const s of document.querySelectorAll(".section"))s.classList.toggle("active",s.id==="tab-"+next);$("heading").textContent=title[next];$("stamp").textContent="";load()}
 for(const b of document.querySelectorAll(".nav"))b.addEventListener("click",()=>switchTab(b.dataset.tab));
 $("refresh").addEventListener("click",load);$("tunnel-search").addEventListener("input",renderTunnels);for(const id of ["severity","time-filter","page-size"]){$(id).addEventListener("change",()=>{securityPage=0;renderSecurity()})}$("security-search").addEventListener("input",()=>{securityPage=0;renderSecurity()});$("prev-page").addEventListener("click",()=>{securityPage--;renderSecurity()});$("next-page").addEventListener("click",()=>{securityPage++;renderSecurity()});$("close-tunnel-modal").addEventListener("click",closeTunnelModal);
-$("tunnel-modal").addEventListener("close",()=>{$("tunnel-frame").src="about:blank";load()});
+$("tunnel-modal").addEventListener("close",()=>{load()});
 $("tunnel-modal").addEventListener("click",e=>{if(e.target===$("tunnel-modal"))closeTunnelModal()});
 $("close-incident").addEventListener("click",()=>{$("incident").close()});
 $("incident").addEventListener("click",event=>{if(event.target===$("incident"))$("incident").close()});
@@ -541,6 +595,88 @@ def validate_tunnel_candidate(data):
         "localPort": local_port,
         "remotePort": public_port,
     }
+
+
+@app.get("/api/tunnels/metadata")
+async def tunnel_metadata(user=Depends(current_user)):
+    names = {p.get("name") for p in read_config().get("proxies", [])}
+    if ui_store is None:
+        return {"enabled": False, "entries": {}}
+    try:
+        entries = ui_store.list_all()
+    except (OSError, sqlite3.Error, RuntimeError):
+        return {"enabled": False, "entries": {}}
+    return {"enabled": True, "entries": {k: v for k,v in entries.items() if k in names}}
+
+
+@app.post("/api/tunnels/metadata/{name}")
+async def save_tunnel_metadata(name: str, request: Request, user=Depends(current_user)):
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if request.headers.get("origin") != PUBLIC_URL:
+        raise HTTPException(403, "Invalid origin")
+    token = request.session.get("tunnel_meta_csrf", "")
+    if not token or not hmac.compare_digest(token, request.headers.get("x-csrf-token", "")):
+        raise HTTPException(403, "Invalid CSRF token")
+    if request.headers.get("content-type", "").split(";")[0].lower() != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    if int(request.headers.get("content-length", "0") or "0") > 2048:
+        raise HTTPException(413, "Request too large")
+    if name not in {p.get("name") for p in read_config().get("proxies", [])}:
+        raise HTTPException(404, "Tunnel not found")
+    if ui_store is None:
+        raise HTTPException(503, "Metadata module has not been installed")
+    try:
+        data = await request.json()
+        if type(data) is not dict or set(data) != {"description", "tags", "maintenance_until"}:
+            raise ValueError("Unexpected fields")
+        result = ui_store.update(name, data["description"], data["tags"],
+                                 data["maintenance_until"], user["sub"])
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except (OSError, sqlite3.Error, RuntimeError):
+        raise HTTPException(503, "UI metadata storage unavailable") from None
+    audit("tunnel_metadata", "success", subject=user["sub"])
+    return result
+
+
+@app.get("/api/tunnels/form-context")
+async def tunnel_form_context(request: Request, name: str = "", user=Depends(current_user)):
+    """Issue operation-scoped CSRF tokens and redacted tunnel form data."""
+    if not any(role in user["roles"] for role in ("frp-admin", "frp-operator")):
+        raise HTTPException(403, "Tunnel management role required")
+    create_token = secrets.token_urlsafe(32)
+    request.session["tunnel_preview_csrf"] = create_token
+    request.session["tunnel_meta_csrf"] = secrets.token_urlsafe(32)
+    response = {
+        "create_csrf": create_token,
+        "meta_csrf": request.session["tunnel_meta_csrf"],
+        "manage_csrf": None,
+        "create_enabled": "frp-admin" in user["roles"] and TUNNEL_ENABLED.is_file(),
+        "manage_enabled": False,
+        "tunnel": None
+    }
+    if name:
+        if "frp-admin" not in user["roles"]:
+            raise HTTPException(403, "Administrator role required")
+        proxy = next((p for p in read_config().get("proxies", []) if p.get("name") == name), None)
+        if proxy is None:
+            raise HTTPException(404, "Tunnel not found")
+        token = secrets.token_urlsafe(32)
+        request.session["tunnel_manage_csrf"] = token
+        response["manage_csrf"] = token
+        response["manage_enabled"] = (TUNNEL_ENABLED.is_file() and TUNNEL_MANAGE_ENABLED.is_file())
+        try:
+            response["metadata"] = ui_store.read(name) if ui_store else None
+        except (OSError, sqlite3.Error, RuntimeError):
+            response["metadata"] = None
+        response["tunnel"] = {
+            "name": proxy["name"], "protocol": proxy["type"],
+            "local_ip": proxy.get("localIP"),
+            "local_port": proxy.get("localPort"),
+            "public_port": proxy.get("remotePort")
+        }
+    return JSONResponse(response, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/tunnels/new", response_class=HTMLResponse)
@@ -1144,9 +1280,136 @@ def read_health_events(limit=100):
         raise HTTPException(503,"Health export unavailable")
 
 
+@app.get("/api/health/target-check")
+async def target_check(name: str, user=Depends(current_user)):
+    """Opt-in bounded TCP target probe for preconfigured tunnels only."""
+    import socket
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name):
+        raise HTTPException(422, "Invalid tunnel name")
+    proxy = next((p for p in read_config().get("proxies", []) if p.get("name") == name), None)
+    if proxy is None:
+        raise HTTPException(404, "Tunnel not found")
+    if proxy.get("type") != "tcp":
+        return {"name": name, "result": "unsupported",
+                "detail": "UDP requires protocol-specific probing; no packets were sent"}
+    host, port = str(proxy.get("localIP", "")), proxy.get("localPort")
+    try:
+        ipaddress.IPv4Address(host)
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("Invalid target port")
+    except (ValueError, ipaddress.AddressValueError):
+        return {"name": name, "result": "unknown", "detail": "Invalid configured endpoint"}
+    def probe():
+        try:
+            with socket.create_connection((host, port), timeout=1.5):
+                return "reachable"
+        except (OSError, TimeoutError):
+            return "unreachable"
+    result = await asyncio.to_thread(probe)
+    return {"name": name, "result": result,
+            "detail": "TCP connect only from FRP Manager LXC to configured local target"}
+
+
+@app.get("/api/diagnostics/remote")
+async def remote_diagnostics(user=Depends(current_user)):
+    try:
+        return await asyncio.to_thread(get_frps_security)
+    except (OSError,RuntimeError,ValueError,json.JSONDecodeError):
+        return {"available":False,"checks":[],"reason":"Remote hardening helper not installed or unreachable"}
+
+
+@app.get("/api/metrics/traffic")
+async def traffic_metrics(user=Depends(current_user)):
+    try:
+        return await asyncio.to_thread(get_frps_metrics)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
+        return {"available":False,"reason":"OVH metric helper unavailable or not installed","proxies":[]}
+
+
+@app.get("/api/backups/status")
+async def backups_status(user=Depends(current_user)):
+    path=Path("/var/lib/frp-manager/backup-public.json")
+    try:
+        item=json.loads(path.read_text(encoding="utf-8"))
+        return {"available":bool(item.get("verified")),"scope":item.get("scope"),
+                "last_created_at":item.get("created_at"),"files":item.get("files"),
+                "local_only":True}
+    except (OSError,ValueError):
+        return {"available":False,"reason":"No verified local backup status; offsite backup not assessed"}
+
+
+@app.get("/api/alerts/status")
+async def alert_status(user=Depends(current_user)):
+    path=Path("/var/lib/frp-manager/alert-status.json")
+    try:
+        with path.open(encoding="utf-8") as fd:
+            record=json.load(fd)
+        return {"configured": bool(record.get("enabled")),
+                "checked_at": record.get("checked_at"),
+                "monitored_subjects":record.get("monitored_subjects"),
+                "alerts_sent_last_run":record.get("alerts_sent")}
+    except (OSError,ValueError):
+        return {"configured":False,"checked_at":None,"detail":"Alert worker has not reported a successful run"}
+
+
+@app.get("/api/diagnostics")
+async def diagnostics(user=Depends(current_user)):
+    """Bounded read-only checks, no raw configuration or secrets."""
+    from datetime import datetime, timezone
+    from app import FRPC_CONFIG
+    checks = []
+    def add(name, result, detail):
+        checks.append({"name": name, "result": result, "detail": detail})
+    try:
+        st = FRPC_CONFIG.stat()
+        world = bool(st.st_mode & 0o007)
+        add("FRPC configuration", "warning" if world else "passed",
+            "World permissions present" if world else "Present; no world permissions")
+    except OSError:
+        add("FRPC configuration", "failed", "Configuration inaccessible")
+    try:
+        sample = read_health_events(1)
+        stamp = datetime.fromisoformat(sample.get("sampled_at") or "")
+        fresh = -30 < (datetime.now(timezone.utc) - stamp).total_seconds() < 120
+        add("Health collector", "passed" if fresh else "warning",
+            "Recent snapshot" if fresh else "Snapshot is stale")
+        upstream = next((x.get("state") for x in sample["states"]
+                         if x.get("subject") == "frps_connection"), "unknown")
+        add("FRPS registration", "passed" if fresh and upstream == "connected" else "warning",
+            "Proxy registered" if fresh and upstream == "connected" else "Registration not verified")
+    except (HTTPException, ValueError, TypeError):
+        add("Health collector", "warning", "Snapshot unavailable")
+    try:
+        config=read_config()
+        method=config.get("auth",{}).get("method","token")
+        add("FRPC authentication", "passed" if method in ("token","oidc") else "warning",
+            "Authentication mechanism configured" if method in ("token","oidc") else "Authentication setting requires inspection")
+        tls=config.get("transport",{}).get("tls",{}).get("enable", False)
+        add("Client-to-server TLS", "passed" if tls is True else "warning",
+            "FRPC TLS explicitly enabled" if tls is True else "TLS enablement not confirmed from client configuration")
+        listen=str(config.get("webServer",{}).get("addr","127.0.0.1"))
+        add("FRPC control API bind", "passed" if listen in ("127.0.0.1","::1","localhost") else "warning",
+            "Loopback only" if listen in ("127.0.0.1","::1","localhost") else "Bound outside loopback; check firewall and authentication")
+    except (OSError,ValueError,TypeError,KeyError):
+        add("FRPC security settings", "warning", "Client config could not be safely assessed")
+    add("Public port policy", "passed" if PORT_POLICY.is_file() and not PORT_POLICY.is_symlink() else "warning",
+        "Local allowed-ports policy present" if PORT_POLICY.is_file() and not PORT_POLICY.is_symlink() else "Port policy missing or invalid")
+    for name, path in (
+        ("Tunnel writes", TUNNEL_ENABLED),
+        ("Tunnel management", TUNNEL_MANAGE_ENABLED),
+        ("Restore", Path("/etc/frp-manager/tunnel-restore-enabled"))
+    ):
+        enabled = path.is_file()
+        add(name, "warning" if enabled else "passed",
+            "Privilege-gated writes are enabled" if enabled else "Write operation disabled")
+    return {"scope": "Local FRP Manager LXC only; no remote OVH audit", "checks": checks}
+
+
 @app.get("/api/health/overview")
 async def health_overview(user=Depends(current_user)):
-    data = get_tunnels()
+    data = await asyncio.to_thread(get_tunnels)
     history = read_health_events(1)
     upstream = next((s["state"] for s in history["states"] if s["subject"]=="frps_connection"),"unknown")
     # A stopped collector must not leave a permanent false green connection.
@@ -1165,7 +1428,7 @@ async def health_overview(user=Depends(current_user)):
 
 @app.get("/api/health/tunnels")
 async def health_tunnels(user=Depends(current_user)):
-    data=get_tunnels()
+    data=await asyncio.to_thread(get_tunnels)
     return {"timestamp":data["timestamp"],"monitoring":data["monitoring"],
             "tunnels":[{**t,"target_health":"not_checked"} for t in data["tunnels"]]}
 

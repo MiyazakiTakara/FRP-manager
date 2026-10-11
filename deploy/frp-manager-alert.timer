@@ -1,0 +1,9 @@
+[Unit]
+Description=Check FRP monitoring alerts every minute
+[Timer]
+OnCalendar=*:0/1
+RandomizedDelaySec=15
+Persistent=true
+Unit=frp-manager-alert.service
+[Install]
+WantedBy=timers.target

@@ -25,11 +25,14 @@ class DashboardStructureTests(unittest.TestCase):
 
     def test_custom_tunnel_modals(self):
         source=(ROOT/"sso_app.py").read_text(encoding="utf-8")
-        for expected in ('id="tunnel-modal"', 'id="tunnel-frame"',
+        for expected in ('id="tunnel-modal"', 'id="tunnel-form"',
                          'id="custom-confirm"', 'function customConfirm(',
                          'openTunnelModal("/tunnels/new"', 'lastIncidentFocus'):
             with self.subTest(expected=expected):
                 self.assertIn(expected,source)
+        self.assertIn('@app.get("/api/tunnels/form-context")',source)
+        self.assertIn('@app.get("/api/diagnostics")',source)
+        self.assertNotIn('id="tunnel-frame"',source)
         self.assertNotIn('if(!confirm("Create this tunnel',source)
         self.assertNotIn('prompt("Confirm deletion.',source)
         self.assertNotIn('prompt("Type the tunnel name',source)

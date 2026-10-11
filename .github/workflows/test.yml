@@ -1,0 +1,24 @@
+name: Tests
+on:
+  push:
+    branches: [main, feature/control-center-v2]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check Python syntax
+        run: python -m compileall -q app.py sso_app.py update_web.py scripts tests
+      - name: Validate shell scripts
+        run: bash -n scripts/*.sh
+      - name: Run regression suite
+        run: python -m unittest discover -s tests -v
