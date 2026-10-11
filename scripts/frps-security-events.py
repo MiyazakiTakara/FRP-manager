@@ -17,7 +17,7 @@ CATEGORIES = [
     ("proxy_created", "info", re.compile(r"new proxy .* success", re.I)),
 ]
 SOURCE = re.compile(r"client login info: ip \[([0-9a-fA-F:.]+)\]")
-PROXY = re.compile(r"(?:new proxy|proxy closing|failed to get work connection).*?\\[([A-Za-z0-9][A-Za-z0-9_.-]{0,79})\\]", re.I)
+PROXY = re.compile(r"(?:new proxy|proxy closing|failed to get work connection).*?\[([A-Za-z0-9][A-Za-z0-9_.-]{0,79})\]", re.I)
 MAX_LINES = 1500
 MAX_EVENTS = 200
 
