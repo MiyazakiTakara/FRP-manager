@@ -37,6 +37,7 @@ body{font:16px system-ui;background:#15181c;color:#e9ecef;max-width:740px;
 margin:50px auto;padding:0 22px;line-height:1.5}
 a{color:#a5c7fb}button{padding:12px 20px;cursor:pointer}
 pre{white-space:pre-wrap;background:#25292e;padding:16px;border-radius:8px}
+body{background:#0d1117;color:#eef2f8;max-width:900px;margin:32px auto;padding:0 22px}h1{font-size:28px}a{color:#92b9ff}button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px}input{background:#121a25;color:#eef2f8;border:1px solid #3a4556;border-radius:7px;padding:8px}pre{background:#151e2b;border:1px solid #30394a;border-radius:9px;color:#dce6f5} :focus-visible{outline:2px solid #92b9ff;outline-offset:3px}
 </style></head><body><p><a href="/">← Back to tunnels</a></p>
 <h1>Application updates</h1>
 <p>Only FRP Manager source files are updated. FRP tunnels, secrets and session
