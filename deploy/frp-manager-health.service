@@ -1,0 +1,16 @@
+[Unit]
+Description=Collect read-only FRPC health state transitions
+After=frpc.service
+Wants=frpc.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/sbin/frp-manager-health-collector --once
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/frp-manager
+TimeoutStartSec=20
