@@ -9,7 +9,7 @@ import sys
 
 CATEGORIES = [
     ("tls_rejected", "warning", re.compile(r"non-TLS connection|tls handshake|tlsonly", re.I)),
-    ("authentication_failed", "high", re.compile(r"authentication failed|invalid token|token.*invalid|login.*fail|authorization failed", re.I)),
+    ("authentication_failed", "high", re.compile(r"authentication failed|invalid token|token.*invalid|login.*fail|authorization failed|token login doesn.t match token", re.I)),
     ("port_rejected", "warning", re.compile(r"port not allowed|acquire port.*error|proxy name.*already in use", re.I)),
     ("proxy_failure", "warning", re.compile(r"new proxy.*error|failed to get work connection|no work connections available", re.I)),
     ("client_login", "info", re.compile(r"client login info:", re.I)),
