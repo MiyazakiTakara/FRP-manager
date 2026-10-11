@@ -23,7 +23,10 @@ from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
 from app import get_tunnels, get_ovh, read_config, get_security_events, get_frps_metrics, get_frps_security
-import ui_store
+try:
+    import ui_store
+except ImportError:
+    ui_store = None  # Legacy source updater has not installed optional UI metadata yet.
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
 CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
@@ -597,6 +600,8 @@ def validate_tunnel_candidate(data):
 @app.get("/api/tunnels/metadata")
 async def tunnel_metadata(user=Depends(current_user)):
     names = {p.get("name") for p in read_config().get("proxies", [])}
+    if ui_store is None:
+        return {"enabled": False, "entries": {}}
     try:
         entries = ui_store.list_all()
     except (OSError, sqlite3.Error, RuntimeError):
@@ -619,6 +624,8 @@ async def save_tunnel_metadata(name: str, request: Request, user=Depends(current
         raise HTTPException(413, "Request too large")
     if name not in {p.get("name") for p in read_config().get("proxies", [])}:
         raise HTTPException(404, "Tunnel not found")
+    if ui_store is None:
+        raise HTTPException(503, "Metadata module has not been installed")
     try:
         data = await request.json()
         if type(data) is not dict or set(data) != {"description", "tags", "maintenance_until"}:
@@ -660,7 +667,7 @@ async def tunnel_form_context(request: Request, name: str = "", user=Depends(cur
         response["manage_csrf"] = token
         response["manage_enabled"] = (TUNNEL_ENABLED.is_file() and TUNNEL_MANAGE_ENABLED.is_file())
         try:
-            response["metadata"] = ui_store.read(name)
+            response["metadata"] = ui_store.read(name) if ui_store else None
         except (OSError, sqlite3.Error, RuntimeError):
             response["metadata"] = None
         response["tunnel"] = {
