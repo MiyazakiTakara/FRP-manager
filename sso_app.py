@@ -6,6 +6,7 @@ import ipaddress
 import re
 import hmac
 import hashlib
+import sqlite3
 import tempfile
 import secrets
 import time
@@ -1088,3 +1089,47 @@ async def restore_csrf(request: Request, user=Depends(current_user)):
     token = secrets.token_urlsafe(32)
     request.session["tunnel_restore_csrf"] = token
     return {"csrf": token, "enabled": RESTORE_ENABLED.is_file()}
+
+HEALTH_DB = Path("/var/lib/frp-manager/health.db")
+
+
+def read_health_events(limit=100):
+    if not HEALTH_DB.is_file():
+        return {"available": False, "states": [], "events": []}
+    with sqlite3.connect("file:" + str(HEALTH_DB) + "?mode=ro", uri=True) as db:
+        states = db.execute("SELECT subject,state,changed_at FROM health_state").fetchall()
+        events = db.execute(
+            "SELECT recorded_at,subject,previous,current,reason FROM health_events ORDER BY id DESC LIMIT ?",
+            (min(500,max(1,limit)),)).fetchall()
+    return {"available": True,
+            "states": [dict(zip(("subject","state","changed_at"),r)) for r in states],
+            "events": [dict(zip(("recorded_at","subject","previous","current","reason"),r)) for r in events]}
+
+
+@app.get("/api/health/overview")
+async def health_overview(user=Depends(current_user)):
+    data = get_tunnels()
+    history = read_health_events(1)
+    upstream = next((s["state"] for s in history["states"] if s["subject"]=="frps_connection"),"unknown")
+    return {"timestamp":data["timestamp"],"client_service":data["client_service"],
+            "monitoring":data["monitoring"],"frps_connection":upstream,
+            "total":data["total"],"active":data["active"],
+            "collector_available":history["available"]}
+
+
+@app.get("/api/health/tunnels")
+async def health_tunnels(user=Depends(current_user)):
+    data=get_tunnels()
+    return {"timestamp":data["timestamp"],"monitoring":data["monitoring"],
+            "tunnels":[{**t,"target_health":"not_checked"} for t in data["tunnels"]]}
+
+
+@app.get("/api/health/history")
+async def health_history(user=Depends(current_user),limit:int=100):
+    return read_health_events(limit)
+
+
+@app.get("/api/health/metrics")
+async def health_metrics(user=Depends(current_user)):
+    return {"available":HEALTH_DB.is_file(),"latency_ms":None,
+            "availability_percent":None,"transfer_bytes":None}
