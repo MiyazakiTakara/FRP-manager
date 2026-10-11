@@ -388,12 +388,12 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 </main></div>
 <script>
 "use strict";
-const $=id=>document.getElementById(id);let tab="overview",tunnels=[],security=[],allowManage=__CAN_MANAGE__,loading=false;
+const $=id=>document.getElementById(id);let tab="overview",tunnels=[],security=[],allowManage=__CAN_MANAGE__,allowCreate=__CAN_CREATE__,loading=false;
 const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events"};
 function cell(row,value){const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);return td}
 function status(value){return value===null||value===undefined?"Unknown":String(value)}
 function fmt(date){if(!date)return"—";const d=new Date(date);return Number.isNaN(d.getTime())?"—":d.toISOString().replace("T"," ").slice(0,19)}
-async function api(url){const c=new AbortController();const timer=setTimeout(()=>c.abort(),16000);try{const res=await fetch(url,{signal:c.signal,cache:"no-store"});if(res.status===401){location.assign("/login");throw Error("Authentication required")}if(!res.ok)throw Error("HTTP "+res.status);return await res.json()}finally{clearTimeout(timer)}}
+async function api(url){const c=new AbortController();const timer=setTimeout(()=>c.abort(),30000);try{const res=await fetch(url,{signal:c.signal,cache:"no-store"});if(res.status===401){location.assign("/login");throw Error("Authentication required")}if(!res.ok)throw Error("HTTP "+res.status);return await res.json()}finally{clearTimeout(timer)}}
 function empty(body,msg){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent=msg;tr.append(td);body.append(tr)}
 function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));cell(tr,t.status);const td=cell(tr,"");if(allowManage){const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
 function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value;let shown=0;for(const e of security){if(sev&&e.severity!==sev)continue;if(!JSON.stringify(e).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,fmt(e.timestamp));cell(tr,e.severity);cell(tr,e.category);cell(tr,Object.entries(e.details||{}).map(([k,v])=>k+": "+v).join(", ")||"—");cell(tr,e.count);body.append(tr)}if(!shown)empty(body,"No matching security events")}
@@ -407,12 +407,12 @@ if(tab==="history")$("stamp").textContent="Read-only overview; full history open
 function switchTab(next){tab=next;for(const b of document.querySelectorAll(".nav"))b.setAttribute("aria-selected",String(b.dataset.tab===next));for(const s of document.querySelectorAll(".section"))s.classList.toggle("active",s.id==="tab-"+next);$("heading").textContent=title[next];$("stamp").textContent="";load()}
 for(const b of document.querySelectorAll(".nav"))b.addEventListener("click",()=>switchTab(b.dataset.tab));
 $("refresh").addEventListener("click",load);$("tunnel-search").addEventListener("input",renderTunnels);$("severity").addEventListener("change",renderSecurity);$("security-search").addEventListener("input",renderSecurity);
-$("manage-links").innerHTML=allowManage?'<a href="/tunnels/new">+ New tunnel</a>':'';
+$("manage-links").innerHTML=allowCreate?'<a href="/tunnels/new">+ New tunnel</a>':'';
 api("/api/me").then(u=>{$("who").textContent=u.name||"Signed in"}).catch(()=>{});
 load();setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},30000);
 </script></body></html>
 """
-    return HTMLResponse(page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false"),headers={"Cache-Control":"no-store"})
+    return HTMLResponse(page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false").replace("__CAN_CREATE__", "true" if any(r in user["roles"] for r in ("frp-admin", "frp-operator")) else "false"),headers={"Cache-Control":"no-store"})
 
 
 @app.get("/logged-out", response_class=HTMLResponse)
