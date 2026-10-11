@@ -10,12 +10,14 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import sqlite3
 import urllib.request
 
 SOURCE = Path(os.environ.get("FRP_ALERT_SOURCE", "/var/lib/frp-manager/health-public.json"))
 STATE = Path(os.environ.get("FRP_ALERT_STATE", "/var/lib/frp-manager/alert-state.json"))
 STATUS = Path(os.environ.get("FRP_ALERT_STATUS", "/var/lib/frp-manager/alert-status.json"))
 TIMEOUT = 8
+META_DB=Path(os.environ.get("FRP_MANAGER_UI_DB","/var/lib/frp-manager/ui/state.db"))
 
 def parse(data, now=None):
     if now is None:
@@ -33,12 +35,34 @@ def parse(data, now=None):
             states[subject] = state.lower()
     return states
 
-def changes(before, after, now=None, cooldown=600):
+def active_maintenance(db_path=META_DB, now=None):
+    """Return proxy subjects currently suppressed by an explicit maintenance window."""
+    now=now or datetime.now(timezone.utc)
+    try:
+        with sqlite3.connect("file:"+str(db_path)+"?mode=ro",uri=True,timeout=2) as db:
+            records=db.execute("SELECT name,maintenance_until FROM tunnel_meta WHERE maintenance_until IS NOT NULL").fetchall()
+    except (OSError,sqlite3.Error):
+        return set()
+    names=set()
+    for name,until in records:
+        try:
+            end=datetime.fromisoformat(until.replace("Z","+00:00"))
+            if end.tzinfo and end>now:
+                names.add(name)
+        except (TypeError,ValueError):
+            pass
+    return names
+
+
+def changes(before, after, now=None, cooldown=600, maintenance=None):
+    maintenance=maintenance or set()
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     notices=[]
     for subject, state in after.items():
         previous=before.get("states",{}).get(subject)
         if previous is None or previous==state:
+            continue
+        if subject.startswith("proxy:") and subject.split(":",2)[-1] in maintenance:
             continue
         unhealthy=state not in ("running","connected","available")
         key=subject+":"+state
@@ -83,7 +107,7 @@ def run():
     except (OSError,ValueError):
         previous={"states":{},"sent":{}}
     current=parse(json.loads(SOURCE.read_text(encoding="utf-8")))
-    notices=changes(previous,current,now)
+    notices=changes(previous,current,now,maintenance=active_maintenance())
     send(webhook,notices)
     sent=previous.get("sent",{})
     for subject,state in notices:
