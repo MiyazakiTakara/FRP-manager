@@ -1,0 +1,9 @@
+[Unit]
+Description=FRP Manager daily local configuration archive
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=frp-manager-backup.service
+[Install]
+WantedBy=timers.target
