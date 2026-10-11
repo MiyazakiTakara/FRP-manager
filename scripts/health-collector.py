@@ -8,12 +8,14 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import tempfile
 import tomllib
 import urllib.request
 
 DB = Path("/var/lib/frp-manager/health.db")
 CONFIG = Path("/etc/frp/frpc.toml")
 MAX_EVENTS = 10000
+PUBLIC = Path("/var/lib/frp-manager/health-public.json")
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -91,6 +93,20 @@ def record(db,sample_data,at):
     db.execute("DELETE FROM health_events WHERE id NOT IN (SELECT id FROM health_events ORDER BY id DESC LIMIT ?)",(MAX_EVENTS,))
     db.commit()
 
+def publish(db):
+    states=db.execute("SELECT subject,state,changed_at FROM health_state ORDER BY subject").fetchall()
+    events=db.execute("SELECT recorded_at,subject,previous,current,reason FROM health_events ORDER BY id DESC LIMIT 200").fetchall()
+    payload={"sampled_at":now(),
+             "states":[dict(zip(("subject","state","changed_at"),r)) for r in states],
+             "events":[dict(zip(("recorded_at","subject","previous","current","reason"),r)) for r in events]}
+    with tempfile.NamedTemporaryFile(mode="w",dir=PUBLIC.parent,prefix=".health-",delete=False) as stream:
+        path=Path(stream.name)
+        json.dump(payload,stream)
+        stream.write("\\n")
+    os.chmod(path,0o644)
+    os.replace(path,PUBLIC)
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--once",action="store_true")
@@ -101,6 +117,7 @@ def main():
     with sqlite3.connect(DB,timeout=10) as db:
         os.chmod(DB,0o600)
         record(db,sample(),now())
+        publish(db)
 
 if __name__=="__main__":
     main()
