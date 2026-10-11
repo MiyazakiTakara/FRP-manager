@@ -21,7 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
-from app import get_tunnels, get_ovh, read_config
+from app import get_tunnels, get_ovh, read_config, get_security_events
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
 CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
@@ -1142,3 +1142,12 @@ async def health_history(user=Depends(current_user),limit:int=100):
 async def health_metrics(user=Depends(current_user)):
     return {"available":HEALTH_PUBLIC.is_file(),"latency_ms":None,
             "availability_percent":None,"transfer_bytes":None}
+
+
+@app.get("/api/security/events")
+async def security_events(user=Depends(current_user)):
+    try:
+        return get_security_events()
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        logging.warning("FRPS security event retrieval failed: %s", type(exc).__name__)
+        raise HTTPException(503, "FRPS security event source unavailable") from None
