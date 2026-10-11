@@ -9,6 +9,6 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/backups/frp-manager
+ReadWritePaths=/var/backups/frp-manager /var/lib/frp-manager
 UMask=0077
 TimeoutStartSec=90
