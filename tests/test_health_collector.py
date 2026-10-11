@@ -34,5 +34,22 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT count(*) FROM health_events").fetchone()[0],count+1)
         db.close()
 
+    def test_public_export_valid_json(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            original=health.PUBLIC
+            health.PUBLIC=Path(folder)/"health-public.json"
+            try:
+                db=sqlite3.connect(":memory:")
+                health.record(db,{"upstream":"unknown","monitoring":"unavailable","tunnels":[]},"2026-10-11T00:00:00Z")
+                health.publish(db)
+                parsed=json.loads(health.PUBLIC.read_text())
+                self.assertIn("states",parsed)
+                self.assertEqual(parsed["states"][0]["state"],"unknown")
+                db.close()
+            finally:
+                health.PUBLIC=original
+
 if __name__=="__main__":
     unittest.main()
