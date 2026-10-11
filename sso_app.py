@@ -1334,6 +1334,21 @@ async def diagnostics(user=Depends(current_user)):
             "Proxy registered" if fresh and upstream == "connected" else "Registration not verified")
     except (HTTPException, ValueError, TypeError):
         add("Health collector", "warning", "Snapshot unavailable")
+    try:
+        config=read_config()
+        method=config.get("auth",{}).get("method","token")
+        add("FRPC authentication", "passed" if method in ("token","oidc") else "warning",
+            "Authentication mechanism configured" if method in ("token","oidc") else "Authentication setting requires inspection")
+        tls=config.get("transport",{}).get("tls",{}).get("enable", False)
+        add("Client-to-server TLS", "passed" if tls is True else "warning",
+            "FRPC TLS explicitly enabled" if tls is True else "TLS enablement not confirmed from client configuration")
+        listen=str(config.get("webServer",{}).get("addr","127.0.0.1"))
+        add("FRPC control API bind", "passed" if listen in ("127.0.0.1","::1","localhost") else "warning",
+            "Loopback only" if listen in ("127.0.0.1","::1","localhost") else "Bound outside loopback; check firewall and authentication")
+    except (OSError,ValueError,TypeError,KeyError):
+        add("FRPC security settings", "warning", "Client config could not be safely assessed")
+    add("Public port policy", "passed" if PORT_POLICY.is_file() and not PORT_POLICY.is_symlink() else "warning",
+        "Local allowed-ports policy present" if PORT_POLICY.is_file() and not PORT_POLICY.is_symlink() else "Port policy missing or invalid")
     for name, path in (
         ("Tunnel writes", TUNNEL_ENABLED),
         ("Tunnel management", TUNNEL_MANAGE_ENABLED),
