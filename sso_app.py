@@ -346,114 +346,73 @@ async def index(request: Request):
 
     page = """
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FRP Manager</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FRP Manager — Control Center</title>
 <style>
-:root {
-  color-scheme: dark;
-  font-family: system-ui, sans-serif;
-  background: #15181c;
-  color: #e9ecef;
-}
-* { box-sizing: border-box; }
-body { margin: 0; }
-header {
-  padding: 18px max(24px, calc((100vw - 1050px)/2));
-  border-bottom: 1px solid #353a40;
-  display: flex; justify-content: space-between; align-items: center;
-}
-main { max-width: 1050px; margin: 48px auto; padding: 0 24px; }
-h1 { font-size: 30px; margin: 0 0 8px; }
-p { color: #b4bbc2; }
-a { color: #b3d5ff; }
-.stats { display: flex; gap: 36px; margin: 36px 0; }
-.stat strong { display: block; font-size: 36px; }
-.stat span { color: #b4bbc2; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 17px 12px; text-align: left;
-         border-bottom: 1px solid #353a40; }
-th { color: #b4bbc2; font-weight: 500; }
-code { font-size: 13px; overflow-wrap: anywhere; }
-.error { color: #ffb8b8; }
-:focus-visible { outline: 3px solid #b3d5ff; outline-offset: 4px; }
-@media(max-width:600px) {
-  header { padding: 16px; }
-  main { margin-top: 24px; padding: 0 16px; }
-  .stats { gap: 28px; }
-}
-</style>
-</head>
-<body>
-<header><strong>FRP Manager</strong><nav><a href="/history">History</a> &nbsp; <a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></nav></header>
-<main>
-  <h1>Tunnels</h1>
-  __ADD_TUNNEL__
-  <p>Configuration and status from your FRP infrastructure.</p>
-  <div class="stats">
-    <div class="stat"><strong id="active">...</strong><span>Active</span></div>
-    <div class="stat"><strong id="total">...</strong><span>Total</span></div>
-  </div>
-  <div id="message" role="status" aria-live="polite"></div>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Name</th><th>Protocol</th>
-      <th>Public address</th><th>Target</th><th>Status</th><th id="actions-heading" hidden>Actions</th></tr></thead>
-    <tbody id="tunnels"></tbody>
-  </table>
-  </div>
-</main>
+:root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark;--bg:#0d1117;--surface:#161c26;--border:#30394a;--muted:#a4afc0;--text:#eef2f8;--accent:#92b9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+header{border-bottom:1px solid var(--border);background:var(--surface);padding:15px clamp(16px,3vw,40px);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-weight:750;font-size:19px}.sub{font-size:12px;color:var(--muted)}.shell{display:grid;grid-template-columns:190px minmax(0,1fr);min-height:calc(100vh - 64px)}
+aside{padding:20px 12px;border-right:1px solid var(--border);background:#121720}.nav{display:block;width:100%;padding:11px 14px;text-align:left;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}
+.nav[aria-selected=true]{background:#253552;color:#fff;font-weight:650}main{padding:26px clamp(16px,3vw,42px);max-width:1450px;width:100%}
+h1{font-size:26px;margin:0 0 6px}h2{font-size:16px;margin:0 0 14px}p{color:var(--muted)}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:22px}
+.btn{border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:#283243;color:var(--text);font:inherit;cursor:pointer}.btn:hover{background:#344259}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.card{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:18px;min-width:0}
+.value{font-size:27px;font-weight:700;margin-top:12px}.muted{color:var(--muted)}.good{color:#83d4ab}.warn{color:#f7c77a}.bad{color:#f29b9b}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}input,select{font:inherit;background:#0c121c;color:var(--text);padding:9px 11px;border:1px solid var(--border);border-radius:7px}
+input{min-width:180px}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{border:1px solid var(--border);border-radius:20px;padding:3px 8px;display:inline-block;font-size:12px}
+.note{font-size:12px;color:var(--muted)}.empty{padding:26px 10px;color:var(--muted)}.section{display:none}.section.active{display:block}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(max-width:780px){.shell{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--border);display:flex;gap:4px;overflow-x:auto;padding:8px}.nav{width:auto;flex:none}main{padding:20px 14px}.grid{grid-template-columns:1fr}.heading{align-items:start}}
+</style></head><body>
+<header><div><div class="brand">FRP Manager</div><div class="sub">Infrastructure control center</div></div>
+<div><span id="who" class="sub"></span> &nbsp; <a href="/updates">Updates</a> &nbsp; <a href="/logout">Sign out</a></div></header>
+<div class="shell"><aside aria-label="Sections">
+<button class="nav" aria-selected="true" data-tab="overview">Overview</button>
+<button class="nav" aria-selected="false" data-tab="tunnels">Tunnels</button>
+<button class="nav" aria-selected="false" data-tab="health">Health</button>
+<button class="nav" aria-selected="false" data-tab="history">History</button>
+<button class="nav" aria-selected="false" data-tab="security">Security Events</button>
+</aside><main>
+<div class="heading"><div><h1 id="heading">Overview</h1><div class="sub" id="stamp">Loading infrastructure status…</div></div><button class="btn" id="refresh">Refresh</button></div>
+<div role="status" id="error" class="bad" aria-live="polite"></div>
+<section class="section active" id="tab-overview"><div class="grid">
+<div class="card"><div class="muted">OVH · FRPS connectivity</div><div class="value" id="upstream">—</div><div class="note">Evidence: registered FRPC proxy</div></div>
+<div class="card"><div class="muted">Active tunnels</div><div class="value" id="active">—</div><div class="note">From local FRPC API</div></div>
+<div class="card"><div class="muted">Monitoring</div><div class="value" id="monitoring">—</div><div class="note">Collector / FRPC status</div></div>
+</div><div class="card" style="margin-top:16px"><h2>Recent security signals</h2><div id="recent">Load the Security Events tab to inspect FRPS events.</div></div></section>
+<section class="section" id="tab-tunnels"><div class="toolbar"><input id="tunnel-search" type="search" placeholder="Filter tunnels" aria-label="Filter tunnels"><span id="manage-links"></span></div><div class="card scroll"><table><thead><tr><th>Name</th><th>Protocol</th><th>Public endpoint</th><th>Local target</th><th>Proxy status</th><th>Action</th></tr></thead><tbody id="tunnel-rows"></tbody></table></div></section>
+<section class="section" id="tab-health"><div class="card"><h2>State changes</h2><p class="note">Samples every 30 seconds; only transitions are recorded. A running UDP proxy does not prove the game server responds.</p><div class="scroll"><table><thead><tr><th>Time (UTC)</th><th>Component</th><th>Previous</th><th>Current</th></tr></thead><tbody id="health-rows"></tbody></table></div></div></section>
+<section class="section" id="tab-history"><div class="card"><h2>Configuration history</h2><p>All version and restore functionality remains in the existing, audited history view.</p><a href="/history">Open configuration history →</a></div></section>
+<section class="section" id="tab-security"><div class="toolbar"><select id="severity" aria-label="Filter by severity"><option value="">All severities</option><option value="high">High</option><option value="warning">Warning</option><option value="info">Info</option></select><input type="search" id="security-search" placeholder="Filter events or address" aria-label="Search security events"><span class="note">FRPS journal · past 24 hours · aggregated</span></div><div class="card scroll"><table><thead><tr><th>Time (UTC)</th><th>Severity</th><th>Category</th><th>Details</th><th>Count</th></tr></thead><tbody id="security-rows"></tbody></table></div></section>
+</main></div>
 <script>
-window.allowManage=__CAN_MANAGE__;
-if(window.allowManage)document.getElementById("actions-heading").hidden=false;
-async function load() {
-  const message = document.getElementById("message");
-  try {
-    const response = await fetch("/api/tunnels");
-    if (response.status === 401) { window.location.assign("/login"); return; }
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const data = await response.json();
-    document.getElementById("active").textContent = data.active ?? "?";
-    document.getElementById("total").textContent = data.total;
-    const tbody = document.getElementById("tunnels");
-    tbody.replaceChildren();
-    if (!data.tunnels.length) message.textContent = "No tunnels configured.";
-    for (const tunnel of data.tunnels) {
-      const tr = document.createElement("tr");
-      const values = [
-        tunnel.name, tunnel.protocol.toUpperCase(),
-        tunnel.public_ip + ":" + tunnel.public_port,
-        tunnel.local_ip + ":" + tunnel.local_port,
-        tunnel.status
-      ];
-      for (const value of values) {
-        const td = document.createElement("td");
-        td.textContent = value;
-        tr.appendChild(td);
-      }
-      if (window.allowManage) {
-        const td=document.createElement("td");
-        const link=document.createElement("a");
-        link.href="/tunnels/manage?name="+encodeURIComponent(tunnel.name);
-        link.textContent="Edit / Delete";
-        td.appendChild(link);tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
-    }
-  } catch (error) {
-    message.className = "error";
-    message.textContent = "Unable to load tunnel status: " + error.message;
-  }
-}
-load();
-</script>
-</body></html>
+"use strict";
+const $=id=>document.getElementById(id);let tab="overview",tunnels=[],security=[],allowManage=__CAN_MANAGE__,loading=false;
+const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events"};
+function cell(row,value){const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);return td}
+function status(value){return value===null||value===undefined?"Unknown":String(value)}
+function fmt(date){if(!date)return"—";const d=new Date(date);return Number.isNaN(d.getTime())?"—":d.toISOString().replace("T"," ").slice(0,19)}
+async function api(url){const c=new AbortController();const timer=setTimeout(()=>c.abort(),16000);try{const res=await fetch(url,{signal:c.signal,cache:"no-store"});if(res.status===401){location.assign("/login");throw Error("Authentication required")}if(!res.ok)throw Error("HTTP "+res.status);return await res.json()}finally{clearTimeout(timer)}}
+function empty(body,msg){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent=msg;tr.append(td);body.append(tr)}
+function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));cell(tr,t.status);const td=cell(tr,"");if(allowManage){const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
+function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value;let shown=0;for(const e of security){if(sev&&e.severity!==sev)continue;if(!JSON.stringify(e).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,fmt(e.timestamp));cell(tr,e.severity);cell(tr,e.category);cell(tr,Object.entries(e.details||{}).map(([k,v])=>k+": "+v).join(", ")||"—");cell(tr,e.count);body.append(tr)}if(!shown)empty(body,"No matching security events")}
+async function load(){if(loading)return;loading=true;$("refresh").disabled=true;$("error").textContent="";try{
+if(tab==="overview"||tab==="tunnels"){const d=await api("/api/health/tunnels");tunnels=d.tunnels||[];renderTunnels();$("active").textContent=tunnels.filter(t=>String(t.status).toLowerCase()==="running").length+" / "+tunnels.length;$("monitoring").textContent=d.monitoring||"Unknown"}
+if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").textContent=status(d.frps_connection);$("stamp").textContent="Last checked "+fmt(d.timestamp)+" UTC"}
+if(tab==="health"){const d=await api("/api/health/history?limit=100");const body=$("health-rows");body.replaceChildren();for(const e of d.events||[]){const tr=document.createElement("tr");cell(tr,fmt(e.recorded_at));cell(tr,e.subject);cell(tr,e.previous);cell(tr,e.current);body.append(tr)}if(!body.children.length)empty(body,"No health transitions recorded")}
+if(tab==="security"){const d=await api("/api/security/events");security=d.events||[];renderSecurity();$("recent").textContent=security.filter(e=>e.severity!=="info").length+" warning/high event groups in the latest FRPS journal window."}
+if(tab==="history")$("stamp").textContent="Read-only overview; full history opens separately.";
+}catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false}}
+function switchTab(next){tab=next;for(const b of document.querySelectorAll(".nav"))b.setAttribute("aria-selected",String(b.dataset.tab===next));for(const s of document.querySelectorAll(".section"))s.classList.toggle("active",s.id==="tab-"+next);$("heading").textContent=title[next];$("stamp").textContent="";load()}
+for(const b of document.querySelectorAll(".nav"))b.addEventListener("click",()=>switchTab(b.dataset.tab));
+$("refresh").addEventListener("click",load);$("tunnel-search").addEventListener("input",renderTunnels);$("severity").addEventListener("change",renderSecurity);$("security-search").addEventListener("input",renderSecurity);
+$("manage-links").innerHTML=allowManage?'<a href="/tunnels/new">+ New tunnel</a>':'';
+api("/api/me").then(u=>{$("who").textContent=u.name||"Signed in"}).catch(()=>{});
+load();setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},30000);
+</script></body></html>
 """
-    page=page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false")
-    return page.replace("__ADD_TUNNEL__", '<p><a href="/tunnels/new">+ Add tunnel (preview)</a></p>' if any(r in user["roles"] for r in ("frp-admin", "frp-operator")) else "")
+    return HTMLResponse(page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false"),headers={"Cache-Control":"no-store"})
 
 
 @app.get("/logged-out", response_class=HTMLResponse)
