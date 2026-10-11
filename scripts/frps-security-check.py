@@ -17,8 +17,21 @@ def assess(config,mode):
         "Forced TLS" if tls.get("force") is True else "TLS enforcement is not explicitly confirmed")
     auth=config.get("auth",{})
     method=auth.get("method","token")
-    add("FRPS authentication",method=="token" and bool(auth.get("token")),
-        "Token authentication configured" if method=="token" and bool(auth.get("token")) else "Check FRPS authentication settings")
+    token_source=auth.get("tokenSource",{})
+    file_path=(token_source.get("file") or {}).get("path") if isinstance(token_source,dict) else None
+    token_file_ok=False
+    if method=="token" and isinstance(token_source,dict) and token_source.get("type")=="file" and isinstance(file_path,str) and file_path.startswith("/"):
+        try:
+            token_path=Path(file_path)
+            token_file_ok=token_path.is_file() and token_path.stat().st_size>0
+        except OSError:
+            token_file_ok=False
+    direct_token=method=="token" and bool(auth.get("token"))
+    configured=direct_token or token_file_ok
+    add("FRPS authentication",configured,
+        "Token authentication configured via protected file" if token_file_ok else
+        "Token authentication configured" if direct_token else
+        "Check FRPS authentication settings")
     allowed=config.get("allowPorts",[])
     add("Port allowlist",isinstance(allowed,list) and 0<len(allowed)<100,
         "FRPS port allowlist exists" if isinstance(allowed,list) and allowed else "Port allowlist missing or unverified")
