@@ -47,7 +47,7 @@ def changes(before, after, now=None, cooldown=600):
             notices.append((subject,state))
     return notices
 
-def atomic_write(path,payload):
+def atomic_write(path,payload,mode=0o600):
     path.parent.mkdir(parents=True,exist_ok=True)
     fd,tmp=tempfile.mkstemp(prefix=".frp-alert-",dir=str(path.parent))
     try:
@@ -55,7 +55,7 @@ def atomic_write(path,payload):
             json.dump(payload,out)
             out.flush()
             os.fsync(out.fileno())
-        os.chmod(tmp,0o600)
+        os.chmod(tmp,mode)
         os.replace(tmp,path)
     finally:
         if os.path.exists(tmp):
