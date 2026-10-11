@@ -46,7 +46,9 @@ class HealthTests(unittest.TestCase):
                 health.publish(db)
                 parsed=json.loads(health.PUBLIC.read_text())
                 self.assertIn("states",parsed)
-                self.assertEqual(parsed["states"][0]["state"],"unknown")
+                states={item["subject"]:item["state"] for item in parsed["states"]}
+                self.assertEqual(states["frps_connection"],"unknown")
+                self.assertEqual(states["frpc_api"],"unavailable")
                 db.close()
             finally:
                 health.PUBLIC=original
