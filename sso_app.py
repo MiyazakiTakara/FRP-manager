@@ -543,6 +543,13 @@ input,select,button{font:inherit;padding:10px;border-radius:6px}
 input,select{background:#252a30;color:#fff;border:1px solid #59616a;width:100%}
 button{margin-top:18px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#252a30;padding:18px;border-radius:8px}
 .note{color:#bdc3ca}.error{color:#ffb5b5}
+body{background:#0d1117!important;color:#eef2f8!important;font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important;line-height:1.55!important}
+a{color:#92b9ff!important}a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #92b9ff;outline-offset:3px}
+h1{font-size:28px;letter-spacing:-.025em}h2{font-size:19px}
+input,select,textarea{background:#121a25!important;border:1px solid #3a4556!important;color:#eef2f8!important;border-radius:8px!important;padding:10px!important}
+button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px;cursor:pointer}
+button:hover{background:#3a4c69}button:disabled{opacity:.45;cursor:not-allowed}
+article,pre,details{border-color:#30394a!important}pre{background:#151e2b!important;color:#dce6f5!important;overflow:auto}
 </style></head><body><p><a href="/">← Back to tunnels</a></p>
 <h1>Add tunnel</h1><p class="note">Validate the tunnel before creating it. Preview is read-only; creation requires administrator approval and may restart FRPC.</p>
 <form id="form">
@@ -712,7 +719,14 @@ async def manage_tunnel(request: Request, user=Depends(current_user)):
 <title>Manage tunnel - FRP Manager</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>:root{color-scheme:dark}body{font:16px system-ui;background:#15181c;color:#eee;max-width:650px;margin:45px auto;padding:20px}
 a{color:#acd0ff}label{display:block;margin-top:15px}input,button{font:inherit;padding:10px;margin-top:5px}input{width:100%;box-sizing:border-box}
-button{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head>
+button{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}body{background:#0d1117!important;color:#eef2f8!important;font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important;line-height:1.55!important}
+a{color:#92b9ff!important}a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #92b9ff;outline-offset:3px}
+h1{font-size:28px;letter-spacing:-.025em}h2{font-size:19px}
+input,select,textarea{background:#121a25!important;border:1px solid #3a4556!important;color:#eef2f8!important;border-radius:8px!important;padding:10px!important}
+button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px;cursor:pointer}
+button:hover{background:#3a4c69}button:disabled{opacity:.45;cursor:not-allowed}
+article,pre,details{border-color:#30394a!important}pre{background:#151e2b!important;color:#dce6f5!important;overflow:auto}
+</style></head>
 <body><a href="/">← Back to tunnels</a><h1>Manage tunnel</h1>
 <p>Preview mode. Editing and deleting will require confirmation and safe backup/rollback.</p>
 <form id="edit">
@@ -948,6 +962,13 @@ body{max-width:980px;margin:40px auto;padding:0 20px}a{color:#b3d5ff}
 article{border:1px solid #343b42;border-radius:8px;padding:18px;margin:12px 0}
 small{color:#aeb6bf}details{margin-top:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .before{color:#ffb5b5}.after{color:#99e5b1}
+body{background:#0d1117!important;color:#eef2f8!important;font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important;line-height:1.55!important}
+a{color:#92b9ff!important}a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #92b9ff;outline-offset:3px}
+h1{font-size:28px;letter-spacing:-.025em}h2{font-size:19px}
+input,select,textarea{background:#121a25!important;border:1px solid #3a4556!important;color:#eef2f8!important;border-radius:8px!important;padding:10px!important}
+button{background:#2c3c56;color:#fff;border:1px solid #4b5b71;border-radius:8px;padding:10px 14px;cursor:pointer}
+button:hover{background:#3a4c69}button:disabled{opacity:.45;cursor:not-allowed}
+article,pre,details{border-color:#30394a!important}pre{background:#151e2b!important;color:#dce6f5!important;overflow:auto}
 </style></head><body>
 <a href="/">← Back to tunnels</a><h1>Configuration history</h1>
 <p>Read-only snapshots. Configuration credentials are never displayed. Restore is not enabled.</p>
