@@ -18,6 +18,12 @@ class RemoteExportTests(unittest.TestCase):
         self.assertTrue(any(x["name"]=="FRPS enforced TLS" and x["result"]=="passed" for x in checks))
         self.assertNotIn("super-secret-value",str(checks))
 
+    def test_frps_071_typed_api_payload(self):
+        mod=script("frps-metrics.py")
+        payload={"proxies":[{"name":"udp-8050","status":"online",
+                             "curConns":0,"todayTrafficIn":0,"todayTrafficOut":0}]}
+        self.assertEqual(mod.decode_proxy(payload["proxies"][0])["status"],"online")
+
     def test_metrics_exporter_is_bounded(self):
         mod=script("frps-metrics.py")
         good=mod.decode_proxy({"name":"udp-8050","todayTrafficIn":1200,
