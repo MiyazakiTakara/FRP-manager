@@ -445,7 +445,7 @@ $("preview-back").addEventListener("click",()=>{$("tunnel-preview").hidden=true;
 $("form-apply").addEventListener("click",async()=>{if(tunnelBusy||!tunnelCanWrite||!tunnelPreview)return;if(tunnelAction==="delete"&&$("tunnel-confirm-name").value!==originalTunnel.name)return;tunnelBusy=true;$("form-apply").disabled=true;setTunnelFeedback("Submitting operation…");try{const action=tunnelAction;const payload=action==="create"?tunnelPreview:action==="delete"?{action,name:originalTunnel.name}:{action,name:originalTunnel.name,tunnel:tunnelPreview};await tunnelPost(action==="create"?"/api/tunnels/create":"/api/tunnels/manage-apply",payload);setTunnelFeedback("Queued. Waiting for FRPC operation result…");let done=false;for(let i=0;i<45&&$("tunnel-modal").open;i++){await new Promise(resolve=>setTimeout(resolve,2000));const result=await api("/api/tunnels/create-status");if((result.state==="success"||result.state==="failed")&&result.name===payload.name&&(action==="create"||result.action===action)){done=true;if(result.state==="failed")throw Error(result.error||"Operation failed; check rollback status");setTunnelFeedback("Operation completed successfully.");load();break}}if(!done)setTunnelFeedback("Operation still processing. Review status before retrying.")}catch(err){setTunnelFeedback(err.message,true)}finally{tunnelBusy=false;$("form-apply").disabled=false}});
 function renderOverviewTunnels(){const body=$("overview-tunnels");body.replaceChildren();for(const t of tunnels.slice(0,10)){const tr=document.createElement("tr");cell(tr,t.name);cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);body.append(tr)}if(!tunnels.length)empty(body,"No configured tunnels")}
 function renderRecent(){const list=$("recent");list.replaceChildren();const important=security.filter(e=>e.severity==="high"||e.severity==="warning").slice(0,5);if(!important.length){const li=document.createElement("li");li.textContent="No recent warning or high severity events";list.append(li);return}for(const e of important){const li=document.createElement("li"),label=document.createElement("span"),stamp=document.createElement("span");label.textContent=e.category.replaceAll("_"," ");label.className="signal "+e.severity;stamp.textContent=fmt(e.timestamp)+" UTC";stamp.className="note";li.append(label,stamp);list.append(li)}}
-function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
+function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));stateCell(tr,t.status);const td=cell(tr,"");if(allowManage){const probe=document.createElement("button");probe.className="btn";probe.type="button";probe.textContent="Test target";probe.style.marginRight="10px";probe.addEventListener("click",async()=>{probe.disabled=true;probe.textContent="Checking…";try{const result=await api("/api/health/target-check?name="+encodeURIComponent(t.name));probe.textContent=result.result;probe.title=result.detail}catch(e){probe.textContent="Check failed";probe.title=e.message}finally{setTimeout(()=>{probe.disabled=false;probe.textContent="Test target"},6000)}});td.append(probe);const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";link.addEventListener("click",event=>{event.preventDefault();openTunnelModal(link.href,"Manage · "+t.name)});td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
 let lastIncidentFocus=null;
 function showIncident(event){const area=$("incident-body");area.replaceChildren();const dl=document.createElement("dl");for(const [key,val] of Object.entries({timestamp:fmt(event.timestamp)+" UTC",severity:event.severity,category:event.category,count:event.count,...(event.details||{})})){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.className="muted";dt.textContent=key.replaceAll("_"," ");dd.textContent=String(val);dd.style.margin="0 0 10px";dl.append(dt,dd)}area.append(dl);lastIncidentFocus=document.activeElement;$("incident").showModal();$("close-incident").focus()}
 function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value,range=Number($("time-filter").value);const cutoff=Date.now()-range*3600000;const filtered=security.filter(e=>(!sev||e.severity===sev)&&(!q||JSON.stringify(e).toLowerCase().includes(q))&&new Date(e.timestamp).getTime()>=cutoff);const size=Number($("page-size").value),pages=Math.max(1,Math.ceil(filtered.length/size));securityPage=Math.min(securityPage,pages-1);const offset=securityPage*size;
@@ -1202,6 +1202,38 @@ def read_health_events(limit=100):
                 "states":data.get("states",[]),"events":data["events"][:min(500,max(1,limit))]}
     except (OSError,ValueError):
         raise HTTPException(503,"Health export unavailable")
+
+
+@app.get("/api/health/target-check")
+async def target_check(name: str, user=Depends(current_user)):
+    """Opt-in bounded TCP target probe for preconfigured tunnels only."""
+    import socket
+    if "frp-admin" not in user["roles"]:
+        raise HTTPException(403, "Administrator role required")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name):
+        raise HTTPException(422, "Invalid tunnel name")
+    proxy = next((p for p in read_config().get("proxies", []) if p.get("name") == name), None)
+    if proxy is None:
+        raise HTTPException(404, "Tunnel not found")
+    if proxy.get("type") != "tcp":
+        return {"name": name, "result": "unsupported",
+                "detail": "UDP requires protocol-specific probing; no packets were sent"}
+    host, port = str(proxy.get("localIP", "")), proxy.get("localPort")
+    try:
+        ipaddress.IPv4Address(host)
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("Invalid target port")
+    except (ValueError, ipaddress.AddressValueError):
+        return {"name": name, "result": "unknown", "detail": "Invalid configured endpoint"}
+    def probe():
+        try:
+            with socket.create_connection((host, port), timeout=1.5):
+                return "reachable"
+        except (OSError, TimeoutError):
+            return "unreachable"
+    result = await asyncio.to_thread(probe)
+    return {"name": name, "result": result,
+            "detail": "TCP connect only from FRP Manager LXC to configured local target"}
 
 
 @app.get("/api/diagnostics")
