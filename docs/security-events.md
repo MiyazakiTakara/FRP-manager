@@ -81,3 +81,27 @@ sudo -u frpmanager-svc ssh -i /etc/frp-manager/id_ed25519 \
 If the SSH account or host differs, use the existing values in
 `FRPS_SSH_USER`/`FRPS_PUBLIC_HOST` rather than the example.
 Avoid posting raw logs, tokens or SSH private keys.
+
+## Control Center UI (October 2026)
+
+The lightweight dashboard uses vanilla HTML/CSS/JavaScript. Live tunnel status
+is polled every 15 seconds while visible, health history every 30 seconds, and
+OVH events at most every 90 seconds. Security fetching runs in a worker thread,
+so a slow SSH connection does not block other web requests.
+
+Security Events uses **client-side** time filters (1/6/12/24 hours), severity
+and search filters, 20/50/100-row pagination and incident detail. The source
+remains limited to the latest 24 hours and at most 200 event groups; pagination
+does not imply unlimited historical storage. Individual player actions or UDP
+payloads are not captured.
+
+The OVH exporter must be updated independently: the LXC application auto-update
+does **not** install anything on the VPS. To recognize FRPC token mismatch,
+the exporter must include the `authentication_failed` pattern for
+`token login doesn't match token configuration`. The known October 10
+unknown client's token authentication was rejected; an observed login-info
+record alone is not successful authentication.
+
+For Health, durations are based on first observed transitions and are labeled
+as observation windows, not guaranteed service uptime. Stale collector
+snapshots are displayed as unknown rather than falsely healthy.
