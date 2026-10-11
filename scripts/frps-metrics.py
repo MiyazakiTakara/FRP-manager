@@ -58,6 +58,24 @@ def read_dashboard(configuration=CONFIG):
             proxy=decode_proxy(raw)
             if proxy:
                 proxies.append(proxy)
+        for proxy in proxies[:10]:
+            traffic_req=urllib.request.Request(
+                "http://127.0.0.1:"+str(port)+"/api/traffic/"+quote(proxy["name"],safe=""),
+                headers={"Authorization":"Basic "+header,"Accept":"application/json"})
+            try:
+                with urllib.request.urlopen(traffic_req,timeout=2) as response:
+                    raw_traffic=response.read(8193)
+                if len(raw_traffic)>8192:
+                    continue
+                traffic=json.loads(raw_traffic)
+                inside=traffic.get("trafficIn")
+                outside=traffic.get("trafficOut")
+                if (type(inside) is list and type(outside) is list and
+                    len(inside)==len(outside)==7 and
+                    all(type(v) is int and 0<=v<10**17 for v in inside+outside)):
+                    proxy["traffic7d"]={"in":inside,"out":outside}
+            except (urllib.error.URLError,TimeoutError,ValueError,TypeError,AttributeError):
+                continue
         return {"available":True,"source":"frps_admin_api",
                 "timestamp":datetime.now(timezone.utc).isoformat(timespec="seconds"),"proxies":proxies}
     except (urllib.error.URLError,TimeoutError,ValueError,TypeError):
