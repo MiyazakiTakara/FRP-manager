@@ -23,6 +23,9 @@ FILES={
     "var/lib/frp-manager/health.db":Path("/var/lib/frp-manager/health.db"),
 }
 MAX_BYTES=512*1024*1024
+STATUS=Path("/var/lib/frp-manager/backup-public.json")
+FRPS_FILES={"etc/frp/frps.toml":Path("/etc/frp/frps.toml"),"etc/frp/server_token":Path("/etc/frp/server_token")}
+ALL_FILES={**FILES,**FRPS_FILES}
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
@@ -48,15 +51,16 @@ def files_to_archive(paths=FILES):
             content[name]=path.read_bytes()
     return content
 
-def build(out_dir=DEST,paths=FILES):
+def build(out_dir=DEST,paths=FILES,scope="lxc"):
     if os.geteuid()!=0:
         raise PermissionError("Backups require root")
     out_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
     if out_dir.stat().st_mode & 0o077:
         raise PermissionError("Backup directory permissions are too broad")
     files=files_to_archive(paths)
-    if "etc/frp/frpc.toml" not in files:
-        raise RuntimeError("FRPC configuration is required")
+    required="etc/frp/frpc.toml" if scope=="lxc" else "etc/frp/frps.toml"
+    if required not in files:
+        raise RuntimeError("Main FRP configuration is required")
     manifest={"schema":1,"created_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "files":{n:{"size":len(b),"sha256":sha256(b)} for n,b in files.items()}}
     fd,temp=tempfile.mkstemp(prefix=".frp-backup-",suffix=".tgz",dir=str(out_dir))
@@ -75,8 +79,18 @@ def build(out_dir=DEST,paths=FILES):
             os.fsync(fp.fileno())
         verify(Path(temp))
         timestamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        final=out_dir/("frp-lxc-"+timestamp+".tgz")
+        final=out_dir/("frp-"+scope+"-"+timestamp+".tgz")
         os.replace(temp,final)
+        try:
+            STATUS.parent.mkdir(parents=True,exist_ok=True)
+            temp_status=STATUS.with_name(".backup-status-"+str(os.getpid()))
+            temp_status.write_text(json.dumps({
+                "scope":scope,"created_at":manifest["created_at"],"filename":final.name,
+                "files":len(files),"verified":True},sort_keys=True))
+            temp_status.chmod(0o644)
+            os.replace(temp_status,STATUS)
+        except OSError:
+            pass
         return final
     finally:
         if os.path.exists(temp):
@@ -95,7 +109,7 @@ def verify(path):
         if names!={"manifest.json",*manifest["files"]}:
             raise ValueError("Manifest does not match archive")
         for name,meta in manifest["files"].items():
-            if name not in FILES:
+            if name not in ALL_FILES:
                 raise ValueError("Unknown archived path")
             raw=tar.extractfile(name).read(MAX_BYTES+1)
             if len(raw)!=meta["size"] or sha256(raw)!=meta["sha256"]:
@@ -106,10 +120,11 @@ def verify(path):
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--verify",type=Path,help="Verify an existing .tgz (no extraction)")
+    parser.add_argument("--scope",choices=("lxc","frps"),default="lxc")
     args=parser.parse_args()
     if args.verify:
         result=verify(args.verify)
         print("VALID: "+", ".join(sorted(result)))
     else:
-        path=build()
+        path=build(paths=FILES if args.scope=="lxc" else FRPS_FILES,scope=args.scope)
         print("Created and verified local root-only archive: "+str(path))
