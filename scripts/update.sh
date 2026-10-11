@@ -10,7 +10,7 @@ VENV_PY="$APP_DIR/venv/bin/python"
 SERVICE="frp-manager.service"
 BACKUP_DIR="/var/backups/frp-manager"
 LOCK="/run/lock/frp-manager-update.lock"
-FILES=(app.py sso_app.py session_store.py update_web.py)
+FILES=(app.py sso_app.py session_store.py update_web.py ui_store.py)
 MODE="${1:---check}"
 
 if [[ "$MODE" != "--check" && "$MODE" != "--apply" ]]; then
