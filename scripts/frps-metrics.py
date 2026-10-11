@@ -38,26 +38,40 @@ def read_dashboard(configuration=CONFIG):
     port=web.get("port")
     if type(port) is not int or not 1<=port<=65535:
         return {"available":False,"reason":"FRPS dashboard API not configured","proxies":[]}
-    url="http://127.0.0.1:"+str(port)+"/api/proxies"
     user=str(web.get("user",""))
     password=str(web.get("password",""))
     if not user or not password:
         return {"available":False,"reason":"FRPS dashboard authentication unavailable","proxies":[]}
     header=base64.b64encode((user+":"+password).encode()).decode()
-    req=urllib.request.Request(url,headers={"Authorization":"Basic "+header,"Accept":"application/json"})
+    proxies=[]
+    any_success=False
     try:
-        with urllib.request.urlopen(req,timeout=5) as response:
-            data=response.read(128001)
-        if len(data)>128000:
-            raise ValueError("Server returned excessive metrics")
-        parsed=json.loads(data)
-        if not isinstance(parsed,list):
-            raise ValueError("Unexpected FRPS metrics format")
-        proxies=[]
-        for raw in parsed[:MAX_PROXIES]:
-            proxy=decode_proxy(raw)
-            if proxy:
-                proxies.append(proxy)
+        for protocol in ("tcp","udp","http","https","stcp","xtcp","tcpmux"):
+            url="http://127.0.0.1:"+str(port)+"/api/proxy/"+protocol
+            req=urllib.request.Request(url,headers={"Authorization":"Basic "+header,"Accept":"application/json"})
+            try:
+                with urllib.request.urlopen(req,timeout=5) as response:
+                    data=response.read(128001)
+                if len(data)>128000:
+                    raise ValueError("Server returned excessive metrics")
+                parsed=json.loads(data)
+                entries=parsed.get("proxies") if isinstance(parsed,dict) else None
+                if not isinstance(entries,list):
+                    raise ValueError("Unexpected FRPS proxy response")
+                any_success=True
+                for raw in entries:
+                    if len(proxies)>=MAX_PROXIES:
+                        break
+                    proxy=decode_proxy(raw)
+                    if proxy:
+                        proxy["protocol"]=protocol
+                        proxies.append(proxy)
+            except urllib.error.HTTPError as error:
+                if error.code==404:
+                    continue
+                raise
+        if not any_success:
+            return {"available":False,"reason":"No supported FRPS proxy API endpoints","proxies":[]}
         for proxy in proxies[:10]:
             traffic_req=urllib.request.Request(
                 "http://127.0.0.1:"+str(port)+"/api/traffic/"+quote(proxy["name"],safe=""),
