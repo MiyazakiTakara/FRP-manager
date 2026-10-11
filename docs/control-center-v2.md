@@ -22,7 +22,7 @@ Never use the existing `udp-8050` proxy as a destructive test target.
   online snapshots on LXC, SHA-256 per member and offline `--verify`. No automatic
   extraction/restore. A backup copied off-host and a successful restore test are
   still required for disaster recovery.
-- Optional FRPS read-only metric exporter: today traffic counters and active
+- Optional FRPS read-only security-check exporter and traffic metric exporter: today traffic counters and active
   connections only if the FRPS authenticated server API is enabled; unreported
   counters remain absent. SSH helper is restricted to a fixed command.
 - Side-by-side version metadata review, sanitized audit export explicitly marked
@@ -95,6 +95,11 @@ sudo install -o root -g root -m 0755 scripts/frps-metrics.py /usr/local/sbin/frp
 echo 'frpmanager ALL=(root) NOPASSWD: /usr/local/sbin/frp-manager-metrics' | sudo tee /etc/sudoers.d/frp-manager-metrics >/dev/null
 sudo chmod 0440 /etc/sudoers.d/frp-manager-metrics
 sudo visudo -cf /etc/sudoers.d/frp-manager-metrics
+# Optional FRPS hardening checks (separate narrow helper)
+sudo install -o root -g root -m 0755 scripts/frps-security-check.py /usr/local/sbin/frp-manager-security-check
+echo 'frpmanager ALL=(root) NOPASSWD: /usr/local/sbin/frp-manager-security-check' | sudo tee /etc/sudoers.d/frp-manager-security-check >/dev/null
+sudo chmod 0440 /etc/sudoers.d/frp-manager-security-check
+sudo visudo -cf /etc/sudoers.d/frp-manager-security-check
 ```
 This is a **separate** OVH action, not included in app auto-update.
 The helper reads `/etc/frp/frps.toml`, authenticates to the FRPS *localhost*
