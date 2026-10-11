@@ -352,17 +352,20 @@ async def index(request: Request):
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark;--bg:#0d1117;--surface:#161c26;--border:#30394a;--muted:#a4afc0;--text:#eef2f8;--accent:#92b9ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 header{border-bottom:1px solid var(--border);background:var(--surface);padding:15px clamp(16px,3vw,40px);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{font-weight:750;font-size:19px}.sub{font-size:12px;color:var(--muted)}.shell{display:grid;grid-template-columns:190px minmax(0,1fr);min-height:calc(100vh - 64px)}
+.brand{font-weight:750;font-size:19px}.sub{font-size:12px;color:var(--muted)}.shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 64px)}
 aside{padding:20px 12px;border-right:1px solid var(--border);background:#121720}.nav{display:block;width:100%;padding:11px 14px;text-align:left;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}
-.nav[aria-selected=true]{background:#253552;color:#fff;font-weight:650}main{padding:26px clamp(16px,3vw,42px);max-width:1450px;width:100%}
+.nav[aria-selected=true]{background:#253552;color:#fff;font-weight:650}main{padding:26px clamp(16px,3vw,42px);max-width:none;width:100%}
 h1{font-size:26px;margin:0 0 6px}h2{font-size:16px;margin:0 0 14px}p{color:var(--muted)}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:22px}
 .btn{border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:#283243;color:var(--text);font:inherit;cursor:pointer}.btn:hover{background:#344259}
 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.card{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:18px;min-width:0}
-.value{font-size:27px;font-weight:700;margin-top:12px}.muted{color:var(--muted)}.good{color:#83d4ab}.warn{color:#f7c77a}.bad{color:#f29b9b}
+.value{font-size:34px;font-weight:750;margin-top:12px}.muted{color:var(--muted)}.good{color:#83d4ab}.warn{color:#f7c77a}.bad{color:#f29b9b}
 .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}input,select{font:inherit;background:#0c121c;color:var(--text);padding:9px 11px;border:1px solid var(--border);border-radius:7px}
 input{min-width:180px}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
 th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{border:1px solid var(--border);border-radius:20px;padding:3px 8px;display:inline-block;font-size:12px}
 .note{font-size:12px;color:var(--muted)}.empty{padding:26px 10px;color:var(--muted)}.section{display:none}.section.active{display:block}
+.live{display:inline-flex;align-items:center;gap:7px;color:#83d4ab;font-size:12px;font-weight:650}.live:before{content:"";background:#83d4ab;width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 4px #83d4ab20}.live.stale{color:#f7c77a}.live.stale:before{background:#f7c77a;box-shadow:none}
+.dashboard-lower{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr);gap:14px;margin-top:16px}.dashboard-lower .card{min-width:0}.flex-between{display:flex;justify-content:space-between;align-items:center;gap:12px}.mini-list{list-style:none;padding:0;margin:0}.mini-list li{border-bottom:1px solid var(--border);padding:10px 0;display:flex;justify-content:space-between;gap:12px}.mini-list li:last-child{border-bottom:0}.signal{font-size:12px;border-radius:5px;padding:3px 7px;background:#38404d}.signal.high{background:#50282d;color:#ffb2b2}.signal.warning{background:#493d26;color:#f7c77a}.value[data-state="connected"],.value[data-state="available"]{color:#83d4ab}.value[data-state="unknown"],.value[data-state="unavailable"]{color:#f7c77a}
+@media(max-width:1080px){.dashboard-lower{grid-template-columns:1fr}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(max-width:780px){.shell{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--border);display:flex;gap:4px;overflow-x:auto;padding:8px}.nav{width:auto;flex:none}main{padding:20px 14px}.grid{grid-template-columns:1fr}.heading{align-items:start}}
 </style></head><body>
 <header><div><div class="brand">FRP Manager</div><div class="sub">Infrastructure control center</div></div>
@@ -374,13 +377,16 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 <button class="nav" aria-selected="false" data-tab="history">History</button>
 <button class="nav" aria-selected="false" data-tab="security">Security Events</button>
 </aside><main>
-<div class="heading"><div><h1 id="heading">Overview</h1><div class="sub" id="stamp">Loading infrastructure status…</div></div><button class="btn" id="refresh">Refresh</button></div>
+<div class="heading"><div><h1 id="heading">Overview</h1><div class="sub" id="stamp">Loading infrastructure status…</div></div><div class="toolbar" style="margin:0"><span id="live" class="live">Live updates</span><button class="btn" id="refresh">Refresh</button></div></div>
 <div role="status" id="error" class="bad" aria-live="polite"></div>
 <section class="section active" id="tab-overview"><div class="grid">
 <div class="card"><div class="muted">OVH · FRPS connectivity</div><div class="value" id="upstream">—</div><div class="note">Evidence: registered FRPC proxy</div></div>
 <div class="card"><div class="muted">Active tunnels</div><div class="value" id="active">—</div><div class="note">From local FRPC API</div></div>
 <div class="card"><div class="muted">Monitoring</div><div class="value" id="monitoring">—</div><div class="note">Collector / FRPC status</div></div>
-</div><div class="card" style="margin-top:16px"><h2>Recent security signals</h2><div id="recent">Load the Security Events tab to inspect FRPS events.</div></div></section>
+</div><div class="dashboard-lower">
+<div class="card"><div class="flex-between"><h2>Active tunnels</h2><a href="#" id="all-tunnels">View all →</a></div><div class="scroll"><table><thead><tr><th>Proxy</th><th>Public endpoint</th><th>Target</th><th>Status</th></tr></thead><tbody id="overview-tunnels"></tbody></table></div></div>
+<div class="card"><div class="flex-between"><h2>Security signals</h2><a href="#" id="all-security">View events →</a></div><div class="note" id="security-stamp">Fetching on a separate interval</div><ul class="mini-list" id="recent"><li class="muted">Waiting for events…</li></ul></div>
+</div></section>
 <section class="section" id="tab-tunnels"><div class="toolbar"><input id="tunnel-search" type="search" placeholder="Filter tunnels" aria-label="Filter tunnels"><span id="manage-links"></span></div><div class="card scroll"><table><thead><tr><th>Name</th><th>Protocol</th><th>Public endpoint</th><th>Local target</th><th>Proxy status</th><th>Action</th></tr></thead><tbody id="tunnel-rows"></tbody></table></div></section>
 <section class="section" id="tab-health"><div class="card"><h2>State changes</h2><p class="note">Samples every 30 seconds; only transitions are recorded. A running UDP proxy does not prove the game server responds.</p><div class="scroll"><table><thead><tr><th>Time (UTC)</th><th>Component</th><th>Previous</th><th>Current</th></tr></thead><tbody id="health-rows"></tbody></table></div></div></section>
 <section class="section" id="tab-history"><div class="card"><h2>Configuration history</h2><p>All version and restore functionality remains in the existing, audited history view.</p><a href="/history">Open configuration history →</a></div></section>
@@ -395,13 +401,15 @@ function status(value){return value===null||value===undefined?"Unknown":String(v
 function fmt(date){if(!date)return"—";const d=new Date(date);return Number.isNaN(d.getTime())?"—":d.toISOString().replace("T"," ").slice(0,19)}
 async function api(url){const c=new AbortController();const timer=setTimeout(()=>c.abort(),30000);try{const res=await fetch(url,{signal:c.signal,cache:"no-store"});if(res.status===401){location.assign("/login");throw Error("Authentication required")}if(!res.ok)throw Error("HTTP "+res.status);return await res.json()}finally{clearTimeout(timer)}}
 function empty(body,msg){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent=msg;tr.append(td);body.append(tr)}
+function renderOverviewTunnels(){const body=$("overview-tunnels");body.replaceChildren();for(const t of tunnels.slice(0,10)){const tr=document.createElement("tr");cell(tr,t.name);cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));cell(tr,t.status);body.append(tr)}if(!tunnels.length)empty(body,"No configured tunnels")}
+function renderRecent(){const list=$("recent");list.replaceChildren();const important=security.filter(e=>e.severity==="high"||e.severity==="warning").slice(0,5);if(!important.length){const li=document.createElement("li");li.textContent="No recent warning or high severity events";list.append(li);return}for(const e of important){const li=document.createElement("li"),label=document.createElement("span"),stamp=document.createElement("span");label.textContent=e.category.replaceAll("_"," ");label.className="signal "+e.severity;stamp.textContent=fmt(e.timestamp)+" UTC";stamp.className="note";li.append(label,stamp);list.append(li)}}
 function renderTunnels(){const body=$("tunnel-rows");body.replaceChildren();const q=$("tunnel-search").value.toLowerCase();let shown=0;for(const t of tunnels){if(!JSON.stringify(t).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,t.name);cell(tr,String(t.protocol||"").toUpperCase());cell(tr,(t.public_ip||"—")+":"+(t.public_port??"—"));cell(tr,(t.local_ip||"—")+":"+(t.local_port??"—"));cell(tr,t.status);const td=cell(tr,"");if(allowManage){const link=document.createElement("a");link.href="/tunnels/manage?name="+encodeURIComponent(t.name);link.textContent="Manage";td.append(link)}body.append(tr)}if(!shown)empty(body,"No matching tunnels")}
 function renderSecurity(){const body=$("security-rows");body.replaceChildren();const q=$("security-search").value.toLowerCase(),sev=$("severity").value;let shown=0;for(const e of security){if(sev&&e.severity!==sev)continue;if(!JSON.stringify(e).toLowerCase().includes(q))continue;shown++;const tr=document.createElement("tr");cell(tr,fmt(e.timestamp));cell(tr,e.severity);cell(tr,e.category);cell(tr,Object.entries(e.details||{}).map(([k,v])=>k+": "+v).join(", ")||"—");cell(tr,e.count);body.append(tr)}if(!shown)empty(body,"No matching security events")}
 async function load(){if(loading)return;loading=true;$("refresh").disabled=true;$("error").textContent="";try{
-if(tab==="overview"||tab==="tunnels"){const d=await api("/api/health/tunnels");tunnels=d.tunnels||[];renderTunnels();$("active").textContent=tunnels.filter(t=>String(t.status).toLowerCase()==="running").length+" / "+tunnels.length;$("monitoring").textContent=d.monitoring||"Unknown"}
-if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").textContent=status(d.frps_connection);$("stamp").textContent="Last checked "+fmt(d.timestamp)+" UTC"}
+if(tab==="overview"||tab==="tunnels"){const d=await api("/api/health/tunnels");tunnels=d.tunnels||[];renderTunnels();renderOverviewTunnels();$("active").textContent=tunnels.filter(t=>String(t.status).toLowerCase()==="running").length+" / "+tunnels.length;$("monitoring").textContent=d.monitoring||"Unknown"}
+if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").textContent=status(d.frps_connection);$("upstream").dataset.state=d.frps_connection;$("stamp").textContent="Last checked "+fmt(d.timestamp)+" UTC"}
 if(tab==="health"){const d=await api("/api/health/history?limit=100");const body=$("health-rows");body.replaceChildren();for(const e of d.events||[]){const tr=document.createElement("tr");cell(tr,fmt(e.recorded_at));cell(tr,e.subject);cell(tr,e.previous);cell(tr,e.current);body.append(tr)}if(!body.children.length)empty(body,"No health transitions recorded")}
-if(tab==="security"){const d=await api("/api/security/events");security=d.events||[];renderSecurity();$("recent").textContent=security.filter(e=>e.severity!=="info").length+" warning/high event groups in the latest FRPS journal window."}
+if(tab==="security"){await pollSecurity();renderSecurity();}
 if(tab==="history")$("stamp").textContent="Read-only overview; full history opens separately.";
 }catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false}}
 function switchTab(next){tab=next;for(const b of document.querySelectorAll(".nav"))b.setAttribute("aria-selected",String(b.dataset.tab===next));for(const s of document.querySelectorAll(".section"))s.classList.toggle("active",s.id==="tab-"+next);$("heading").textContent=title[next];$("stamp").textContent="";load()}
@@ -409,7 +417,16 @@ for(const b of document.querySelectorAll(".nav"))b.addEventListener("click",()=>
 $("refresh").addEventListener("click",load);$("tunnel-search").addEventListener("input",renderTunnels);$("severity").addEventListener("change",renderSecurity);$("security-search").addEventListener("input",renderSecurity);
 $("manage-links").innerHTML=allowCreate?'<a href="/tunnels/new">+ New tunnel</a>':'';
 api("/api/me").then(u=>{$("who").textContent=u.name||"Signed in"}).catch(()=>{});
-load();setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},30000);
+let lastOK=0,lastSecurity=0,securityBusy=false;
+const initialLoad=load;
+load=async function(){await initialLoad();if(!$("error").textContent){lastOK=Date.now();$("live").classList.remove("stale");$("live").textContent="Live · updated "+new Date().toLocaleTimeString()}else{$("live").classList.add("stale");$("live").textContent="Data may be stale"}};
+async function pollSecurity(force=false){if(securityBusy||document.visibilityState!=="visible")return;if(!force&&Date.now()-lastSecurity<90000)return;securityBusy=true;try{const d=await api("/api/security/events");security=d.events||[];lastSecurity=Date.now();renderRecent();if(tab==="security")renderSecurity();$("security-stamp").textContent="FRPS journal · updated "+new Date().toLocaleTimeString()}catch(e){$("security-stamp").textContent="Security feed unavailable: "+e.message}finally{securityBusy=false}}
+$("all-tunnels").addEventListener("click",e=>{e.preventDefault();switchTab("tunnels")});
+$("all-security").addEventListener("click",e=>{e.preventDefault();switchTab("security")});
+pollSecurity(true);
+setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="tunnels"))load()},15000);
+setInterval(()=>{if(document.visibilityState==="visible"&&(tab==="overview"||tab==="security"))pollSecurity()},30000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(tab==="overview"||tab==="tunnels")load();if(tab==="overview"||tab==="security")pollSecurity()}});
 </script></body></html>
 """
     return HTMLResponse(page.replace("__CAN_MANAGE__", "true" if "frp-admin" in user["roles"] else "false").replace("__CAN_CREATE__", "true" if any(r in user["roles"] for r in ("frp-admin", "frp-operator")) else "false"),headers={"Cache-Control":"no-store"})
