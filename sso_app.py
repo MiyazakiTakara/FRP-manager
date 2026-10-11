@@ -387,7 +387,7 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 <button class="nav" aria-selected="false" data-tab="tunnels">Tunnels</button>
 <button class="nav" aria-selected="false" data-tab="health">Health</button>
 <button class="nav" aria-selected="false" data-tab="history">History</button>
-<button class="nav" aria-selected="false" data-tab="security">Security Events</button>
+<button class="nav" aria-selected="false" data-tab="security">Security Events</button><button class="nav" aria-selected="false" data-tab="diagnostics">Diagnostics</button><button class="nav" aria-selected="false" data-tab="topology">Topology</button>
 </aside><main>
 <div class="heading"><div><h1 id="heading">Overview</h1><div class="sub" id="stamp">Loading infrastructure status…</div></div><div class="toolbar" style="margin:0"><span id="live" class="live">Live updates</span><button class="btn" id="refresh">Refresh</button></div></div>
 <div role="status" id="error" class="bad" aria-live="polite"></div>
@@ -415,11 +415,13 @@ th{color:var(--muted);font-weight:600;font-size:12px}td{font-size:13px}.pill{bor
 <p id="tunnel-feedback" role="status" aria-live="polite"></p>
 </dialog>
 <dialog id="incident" aria-labelledby="incident-title"><div class="flex-between"><h2 id="incident-title">Event details</h2><button type="button" class="btn" id="close-incident">Close</button></div><div id="incident-body"></div><p class="note">These are sanitized FRPS events, not evidence of individual user activity inside a tunnel.</p></dialog>
+<section class="section" id="tab-diagnostics"><div class="card"><h2>Security and diagnostics</h2><p class="note">Read-only checks. Remote OVH settings are not inspected.</p><div id="diag-list"></div></div></section>
+<section class="section" id="tab-topology"><div class="card"><h2>Connection topology</h2><p class="note">Logical route. A registered proxy does not prove an application is responding.</p><div id="topology-list"></div></div></section>
 </main></div>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);let tab="overview",tunnels=[],security=[],securityPage=0,allowManage=__CAN_MANAGE__,allowCreate=__CAN_CREATE__,loading=false;
-const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events"};
+const title={overview:"Overview",tunnels:"Tunnels",health:"Health",history:"History",security:"Security Events",diagnostics:"Diagnostics",topology:"Topology"};
 function cell(row,value){const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);return td}
 function stateClass(v){const x=String(v||"unknown").toLowerCase();return ["running","available","connected","success"].includes(x)?"ok":["error","failed","stopped","closed","disconnected","offline"].includes(x)?"fail":"unknown"}
 function stateCell(row,v){const td=document.createElement("td"),span=document.createElement("span");span.className="state "+stateClass(v);span.textContent=status(v);td.append(span);row.append(td)}
@@ -455,6 +457,8 @@ if(tab==="overview"||tab==="tunnels"){const d=await api("/api/health/tunnels");t
 if(tab==="overview"){const d=await api("/api/health/overview");$("upstream").textContent=status(d.frps_connection);$("upstream").dataset.state=d.frps_connection;$("stamp").textContent="Last checked "+fmt(d.timestamp)+" UTC"}
 if(tab==="health"){const d=await api("/api/health/history?limit=100");const body=$("health-rows");body.replaceChildren();$("health-timeline").replaceChildren();const cards=$("health-current");cards.replaceChildren();const sampled=new Date(d.sampled_at||0).getTime();const fresh=d.available&&Number.isFinite(sampled)&&Date.now()-sampled<120000;for(const state of d.states||[]){const box=document.createElement("div"),name=document.createElement("div"),value=document.createElement("div"),duration=document.createElement("div");box.className="card";name.className="note";value.className="state "+(fresh?stateClass(state.state):"unknown");duration.className="note";name.textContent=state.subject;value.textContent=fresh?state.state:"Unknown (stale sample)";const since=new Date(state.changed_at).getTime();duration.textContent=Number.isFinite(since)&&fresh?"Observed for "+Math.max(0,Math.floor((Date.now()-since)/60000))+" min":"Duration unknown";box.append(name,value,duration);cards.append(box)}for(const e of d.events||[]){const tr=document.createElement("tr");cell(tr,fmt(e.recorded_at));cell(tr,e.subject);cell(tr,e.previous);stateCell(tr,e.current);body.append(tr);if($("health-timeline").children.length<12){const li=document.createElement("li");li.className=stateClass(e.current);const label=document.createElement("span");label.textContent=fmt(e.recorded_at)+" UTC · "+e.subject;const val=document.createElement("span");val.textContent=status(e.current);li.append(label,val);$("health-timeline").append(li)}}if(!body.children.length)empty(body,"No health transitions recorded")}
 if(tab==="security"){await pollSecurity();renderSecurity();}
+if(tab==="diagnostics"){const data=await api("/api/diagnostics"),root=$("diag-list");root.replaceChildren();for(const c of data.checks){const row=document.createElement("div"),label=document.createElement("strong"),detail=document.createElement("p");row.style.padding="12px 0";row.style.borderBottom="1px solid var(--border)";label.textContent=c.name+" · "+c.result.toUpperCase();label.className=c.result==="passed"?"good":c.result==="failed"?"bad":"warn";detail.textContent=c.detail;row.append(label,detail);root.append(row)}}
+if(tab==="topology"){const data=await api("/api/health/tunnels"),root=$("topology-list");root.replaceChildren();for(const t of data.tunnels||[]){const row=document.createElement("div");row.className="card";row.style.marginBottom="10px";const line=document.createElement("strong"),detail=document.createElement("div");line.textContent="Internet → OVH FRPS → FRPC → "+(t.local_ip||"local host");detail.className="note";detail.textContent=t.name+" · "+t.protocol+" · public :"+t.public_port+" → local :"+t.local_port+" · "+t.status;row.append(line,detail);root.append(row)}if(!root.children.length)root.textContent="No tunnels"}
 if(tab==="history"){const d=await api("/api/history");const list=$("version-list");list.replaceChildren();for(const v of (d.versions||[]).slice().reverse().slice(0,15)){const row=document.createElement("div");row.style.padding="11px 0";row.style.borderBottom="1px solid var(--border)";const heading=document.createElement("strong"),meta=document.createElement("div");heading.textContent="v"+v.id+" · "+v.summary;meta.className="note";meta.textContent=fmt(v.recorded_at)+" UTC · "+v.actor;row.append(heading,meta);list.append(row)}if(!list.children.length)list.textContent="No versions recorded";$("stamp").textContent="Configuration history · read-only"}
 }catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false}}
 function switchTab(next){tab=next;for(const b of document.querySelectorAll(".nav"))b.setAttribute("aria-selected",String(b.dataset.tab===next));for(const s of document.querySelectorAll(".section"))s.classList.toggle("active",s.id==="tab-"+next);$("heading").textContent=title[next];$("stamp").textContent="";load()}
@@ -1198,6 +1202,44 @@ def read_health_events(limit=100):
                 "states":data.get("states",[]),"events":data["events"][:min(500,max(1,limit))]}
     except (OSError,ValueError):
         raise HTTPException(503,"Health export unavailable")
+
+
+@app.get("/api/diagnostics")
+async def diagnostics(user=Depends(current_user)):
+    """Bounded read-only checks, no raw configuration or secrets."""
+    from datetime import datetime, timezone
+    from app import FRPC_CONFIG
+    checks = []
+    def add(name, result, detail):
+        checks.append({"name": name, "result": result, "detail": detail})
+    try:
+        st = FRPC_CONFIG.stat()
+        world = bool(st.st_mode & 0o007)
+        add("FRPC configuration", "warning" if world else "passed",
+            "World permissions present" if world else "Present; no world permissions")
+    except OSError:
+        add("FRPC configuration", "failed", "Configuration inaccessible")
+    try:
+        sample = read_health_events(1)
+        stamp = datetime.fromisoformat(sample.get("sampled_at") or "")
+        fresh = -30 < (datetime.now(timezone.utc) - stamp).total_seconds() < 120
+        add("Health collector", "passed" if fresh else "warning",
+            "Recent snapshot" if fresh else "Snapshot is stale")
+        upstream = next((x.get("state") for x in sample["states"]
+                         if x.get("subject") == "frps_connection"), "unknown")
+        add("FRPS registration", "passed" if fresh and upstream == "connected" else "warning",
+            "Proxy registered" if fresh and upstream == "connected" else "Registration not verified")
+    except (HTTPException, ValueError, TypeError):
+        add("Health collector", "warning", "Snapshot unavailable")
+    for name, path in (
+        ("Tunnel writes", TUNNEL_ENABLED),
+        ("Tunnel management", TUNNEL_MANAGE_ENABLED),
+        ("Restore", Path("/etc/frp-manager/tunnel-restore-enabled"))
+    ):
+        enabled = path.is_file()
+        add(name, "warning" if enabled else "passed",
+            "Privilege-gated writes are enabled" if enabled else "Write operation disabled")
+    return {"scope": "Local FRP Manager LXC only; no remote OVH audit", "checks": checks}
 
 
 @app.get("/api/health/overview")
