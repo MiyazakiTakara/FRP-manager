@@ -102,7 +102,7 @@ def publish(db):
     with tempfile.NamedTemporaryFile(mode="w",dir=PUBLIC.parent,prefix=".health-",delete=False) as stream:
         path=Path(stream.name)
         json.dump(payload,stream)
-        stream.write("\\n")
+        stream.write("\n")
     os.chmod(path,0o644)
     os.replace(path,PUBLIC)
 
