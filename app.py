@@ -169,6 +169,27 @@ def get_ovh():
     return data
 
 
+def get_security_events():
+    if not OVH_HOST:
+        raise RuntimeError("FRPS SSH host is not configured")
+    output = command(
+        "ssh", "-i", SSH_KEY, "-o", "IdentitiesOnly=yes",
+        "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+        "-o", "UserKnownHostsFile=" + os.getenv(
+            "FRPS_SSH_KNOWN_HOSTS", "/etc/frp-manager/ssh/known_hosts"),
+        "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
+        f"{OVH_USER}@{OVH_HOST}",
+        "sudo -n /usr/local/sbin/frp-manager-security-events",
+        timeout=24,
+    )
+    if len(output) > 256000:
+        raise ValueError("Oversized security event response")
+    data=json.loads(output)
+    if not isinstance(data,dict) or not isinstance(data.get("events"),list):
+        raise ValueError("Invalid security event response")
+    return data
+
+
 class Handler(BaseHTTPRequestHandler):
 
     def respond(self, code, data):
