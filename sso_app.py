@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 import os
 import logging
 import json
+import asyncio
 import ipaddress
 import re
 import hmac
@@ -1159,7 +1160,7 @@ async def health_metrics(user=Depends(current_user)):
 @app.get("/api/security/events")
 async def security_events(user=Depends(current_user)):
     try:
-        return get_security_events()
+        return await asyncio.to_thread(get_security_events)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         logging.warning("FRPS security event retrieval failed: %s", type(exc).__name__)
         raise HTTPException(503, "FRPS security event source unavailable") from None
