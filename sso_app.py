@@ -22,7 +22,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 
 # Import the existing read-only FRP integration.
-from app import get_tunnels, get_ovh, read_config, get_security_events, get_frps_metrics
+from app import get_tunnels, get_ovh, read_config, get_security_events, get_frps_metrics, get_frps_security
 import ui_store
 
 ISSUER = os.environ["OIDC_ISSUER"].rstrip("/")
@@ -471,7 +471,7 @@ if(tab==="security"){await pollSecurity();renderSecurity();}
 if(tab==="traffic"){const data=await api("/api/metrics/traffic"),root=$("traffic-list");root.replaceChildren();if(!data.available){root.textContent=data.reason||"Remote metrics unavailable"}else{const table=document.createElement("table");const head=document.createElement("tr");for(const col of ["Tunnel","Connections","Today IN","Today OUT"]){const cell=document.createElement("th");cell.textContent=col;head.append(cell)}table.append(head);for(const p of data.proxies){const tr=document.createElement("tr");cell(tr,p.name);cell(tr,p.counters?.curConns??"Not reported");cell(tr,p.counters?.todayTrafficIn==null?"Not reported":(p.counters.todayTrafficIn/1024/1024).toFixed(2)+" MiB");cell(tr,p.counters?.todayTrafficOut==null?"Not reported":(p.counters.todayTrafficOut/1024/1024).toFixed(2)+" MiB");table.append(tr)}root.append(table);if(!data.proxies.length)root.textContent="No proxy counters reported"}}}
 if(tab==="backup"){const [history,archive]=await Promise.all([api("/api/history"),api("/api/backups/status")]);$("backup-status").textContent=(history.versions||[]).length+" audited versions · "+(archive.available?"last verified local archive: "+fmt(archive.last_created_at)+" UTC ("+archive.files+" files)":"no verified local archive reported")+". Offsite backup and restore have NOT been verified."}
 if(tab==="alerts"){const d=await api("/api/alerts/status");$("alerts-status").textContent=d.configured?"Active · last check "+fmt(d.checked_at)+" UTC · "+d.monitored_subjects+" subjects":"Not configured or no successful check yet"}
-if(tab==="diagnostics"){const data=await api("/api/diagnostics"),root=$("diag-list");root.replaceChildren();for(const c of data.checks){const row=document.createElement("div"),label=document.createElement("strong"),detail=document.createElement("p");row.style.padding="12px 0";row.style.borderBottom="1px solid var(--border)";label.textContent=c.name+" · "+c.result.toUpperCase();label.className=c.result==="passed"?"good":c.result==="failed"?"bad":"warn";detail.textContent=c.detail;row.append(label,detail);root.append(row)}}
+if(tab==="diagnostics"){const data=await api("/api/diagnostics"),root=$("diag-list");root.replaceChildren();for(const c of data.checks){const row=document.createElement("div"),label=document.createElement("strong"),detail=document.createElement("p");row.style.padding="12px 0";row.style.borderBottom="1px solid var(--border)";label.textContent=c.name+" · "+c.result.toUpperCase();label.className=c.result==="passed"?"good":c.result==="failed"?"bad":"warn";detail.textContent=c.detail;row.append(label,detail);root.append(row)}const remote=await api("/api/diagnostics/remote");const h=document.createElement("h2");h.textContent="Remote OVH checks";root.append(h);if(!remote.available){const p=document.createElement("p");p.textContent=remote.reason;root.append(p)}else{for(const c of remote.checks){const el=document.createElement("p");el.textContent=c.name+" — "+c.result+": "+c.detail;el.className=c.result==="passed"?"good":"warn";root.append(el)}}}
 if(tab==="topology"){const data=await api("/api/health/tunnels"),root=$("topology-list");root.replaceChildren();for(const t of data.tunnels||[]){const row=document.createElement("div");row.className="card";row.style.marginBottom="10px";const line=document.createElement("strong"),detail=document.createElement("div");line.textContent="Internet → OVH FRPS → FRPC → "+(t.local_ip||"local host");detail.className="note";detail.textContent=t.name+" · "+t.protocol+" · public :"+t.public_port+" → local :"+t.local_port+" · "+t.status;row.append(line,detail);root.append(row)}if(!root.children.length)root.textContent="No tunnels"}
 if(tab==="history"){const d=await api("/api/history");historyVersions=d.versions||[];for(const id of ["diff-before","diff-after"]){const select=$(id);select.replaceChildren();for(const v of historyVersions){const option=document.createElement("option");option.value=v.id;option.textContent="v"+v.id;select.append(option)}}if(historyVersions.length>1){$("diff-before").value=historyVersions[0].id;$("diff-after").value=historyVersions[historyVersions.length-1].id}const list=$("version-list");list.replaceChildren();for(const v of (d.versions||[]).slice().reverse().slice(0,15)){const row=document.createElement("div");row.style.padding="11px 0";row.style.borderBottom="1px solid var(--border)";const heading=document.createElement("strong"),meta=document.createElement("div");heading.textContent="v"+v.id+" · "+v.summary;meta.className="note";meta.textContent=fmt(v.recorded_at)+" UTC · "+v.actor;row.append(heading,meta);list.append(row)}if(!list.children.length)list.textContent="No versions recorded";$("stamp").textContent="Configuration history · read-only"}
 }catch(e){$("error").textContent="Unable to load "+title[tab]+": "+e.message}finally{loading=false;$("refresh").disabled=false;if(loadQueued){loadQueued=false;queueMicrotask(()=>load())}}}
@@ -1293,6 +1293,14 @@ async def target_check(name: str, user=Depends(current_user)):
     result = await asyncio.to_thread(probe)
     return {"name": name, "result": result,
             "detail": "TCP connect only from FRP Manager LXC to configured local target"}
+
+
+@app.get("/api/diagnostics/remote")
+async def remote_diagnostics(user=Depends(current_user)):
+    try:
+        return await asyncio.to_thread(get_frps_security)
+    except (OSError,RuntimeError,ValueError,json.JSONDecodeError):
+        return {"available":False,"checks":[],"reason":"Remote hardening helper not installed or unreachable"}
 
 
 @app.get("/api/metrics/traffic")
